@@ -1,80 +1,118 @@
-#include <EspDrv.h>
-#include <MQTTClient.h>
-#include <SoftwareSerial.h>
+#include "camera.h"
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include "config.h"
 
-void MQTTMessageReceive(char* topic, uint8_t* payload, uint16_t length) { }
-MQTTConnectData mqttConnectData = { MQTTHost, 1883, "WaterMeter", MQTTUsername, MQTTPassword, "", 0, false, "", false, 0x0F }; 
+size_t CHUNK_SIZE = 512;
 
-SoftwareSerial serial(4, 5);
-EspDrv espDrv(&serial);
-MQTTClient mqttClient(&espDrv, MQTTMessageReceive);
-char data[32];
-unsigned long lastSendToMQTT = 0;
+// ⏱ Interval snímání (5 minut)
+const unsigned long interval = 5 * 60 * 1000;
+unsigned long lastCaptureTime = 0;
 
-unsigned long lastRissing = 0;
-unsigned long count = 0; 
-
-void Add()
+// 📸 Snímání a odeslání fotky
+void captureAndSend() 
 {
-  if(millis() - lastRissing > 84)
+  camera_fb_t* fb = capture();
+  if (!fb) 
   {
-    count++;
-    lastRissing = millis();
+    Serial.println("❌ Chyba při pořizování obrázku");
+    return;
   }
-}
+  Serial.printf("📸 Pořízen obrázek (%d B)\n", fb->len);
+  WiFiClientSecure client;
+  client.setInsecure();
+  Serial.println("Připojení k serveru");
+  if (!client.connect(Server, 443)) {
+    Serial.println("❌ Nelze se připojit k serveru");
+    returnFb(fb);
+    return;
+  }
+  Serial.println("Připojeno");
+  String boundary = "ESP32CAM";
+  String bodyStart = "--" + boundary + "\r\n"
+                     "Content-Disposition: form-data; name=\"file\"; filename=\"vodomer.jpg\"\r\n"
+                     "Content-Type: image/jpeg\r\n\r\n";
+  String bodyEnd   = "\r\n--" + boundary + "--\r\n";
 
-bool Connect()
-{
-  int wifiStatus = espDrv.GetConnectionStatus();
-  bool wifiConnected = wifiStatus == WL_CONNECTED;
-  if(wifiStatus == WL_DISCONNECTED || wifiStatus == WL_IDLE_STATUS)
-  {
-    wifiConnected = espDrv.Connect(WifiSSID, WifiPassword);
-  }
-  if(wifiConnected)
-  {
+  int contentLength = bodyStart.length() + fb->len + bodyEnd.length();
+  Serial.print("Délka požadavku ");
+  Serial.println(contentLength);
+  Serial.println("Odesílám požadavek");
+  // Vytvoření HTTP požadavku
+  client.println("POST " + String(endpoint) + " HTTP/1.1");
+  client.println("Host: " + String(Server));
+  client.println("Authorization: Basic " + String(auth));
+  client.println("Content-Type: multipart/form-data; boundary=" + boundary);
+  client.println("Content-Length: " + String(contentLength));
+  client.println();  // konec hlaviček
 
-    bool isConnected = mqttClient.IsConnected();
-    if(!isConnected)
-    {
-      return mqttClient.Connect(mqttConnectData);
-    }
-    else
-    {
-      return true;
-    }
+  // Tělo požadavku
+  client.print(bodyStart);
+  size_t bytesSent = 0;
+  while (bytesSent < fb->len) 
+  {
+    size_t bytesToSend = min(CHUNK_SIZE, fb->len - bytesSent);
+    client.write(fb->buf + bytesSent, bytesToSend);
+    bytesSent += bytesToSend;
   }
-  return false;
+  client.print(bodyEnd);
+  client.flush();
+  Serial.println("Požadavek odeslán, čekám na odpověď");
+  // Čtení odpovědi
+  while (client.connected()) {
+    String line = client.readStringUntil('\n');
+    if (line == "\r") break;  // konec hlaviček
+  }
+
+  String response = client.readString();
+  Serial.println("✅ Odpověď serveru:");
+  Serial.println(response);
+
+  returnFb(fb);
 }
 
 void setup() 
 {
-  pinMode(2, INPUT);
-  Serial.begin(57600);
-  serial.begin(57600);
-  espDrv.Init(16);
-  espDrv.Connect(WifiSSID, WifiPassword);
-  attachInterrupt(digitalPinToInterrupt(2), Add, RISING);
+  Serial.begin(115200);
+  delay(1000);
+
+  WiFi.begin(WifiSSID, WifiPassword);
+  Serial.print("🔌 Připojuji se na Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) 
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n✅ Wi-Fi připojeno");
+
+  if (!initCamera()) 
+  {
+    Serial.println("💀 Chyba při inicializaci kamery");
+    while (true);
+  }
+
+  lastCaptureTime = millis() - interval; // pro okamžité první snímání
 }
 
 void loop() 
 {
-  mqttClient.Loop();
-  unsigned long currentMillis = millis();
-  if(currentMillis - lastSendToMQTT >= 300000)
-  {    
-    detachInterrupt(digitalPinToInterrupt(2));
-    Serial.print("Variable 1:");
-    Serial.println(count);
-    if(Connect())
+  if(WiFi.status() != WL_CONNECTED)
+  {
+    WiFi.begin(WifiSSID, WifiPassword);
+    Serial.print("🔌 Připojuji se na Wi-Fi");
+    while (WiFi.status() != WL_CONNECTED) 
     {
-      mqttClient.Publish(WATERCONSUMPTION, 0);
-      mqttClient.Publish(WATERCONSUMPTION, count);
-      mqttClient.Disconnect();
-      count = 0;
+      delay(500);
+      Serial.print(".");
     }
-    lastSendToMQTT = currentMillis;
-    attachInterrupt(digitalPinToInterrupt(2), Add, RISING);
   }
+  if (millis() - lastCaptureTime >= interval) 
+  {
+    Serial.println("📸 Pořizuji snímek a odesílám...");
+    captureAndSend();
+    lastCaptureTime = millis();
+  }
+
+  delay(1000); // šetřič CPU
 }
