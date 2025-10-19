@@ -48,6 +48,8 @@ int sendDataRecursive(camera_fb_t* fb, size_t len, int attempt = 1)
   if (attempt > MAX_RETRIES) 
   {
     Serial.printf("Fotku se nepodařilo odeslat ani na %d pokus.\n", MAX_RETRIES);
+    returnFb(fb);
+    deInit();
     return -1;
   }
 
@@ -75,7 +77,7 @@ int sendDataRecursive(camera_fb_t* fb, size_t len, int attempt = 1)
   client.println();
 
   size_t sent = 0;
-  int32_t t0 = millis();
+  uint32_t t0 = millis();
   while (sent < len) 
   {
     size_t chunk = (len - sent > CHUNK_SIZE) ? CHUNK_SIZE : (len - sent);
@@ -110,13 +112,14 @@ int sendDataRecursive(camera_fb_t* fb, size_t len, int attempt = 1)
                   (unsigned)len, (unsigned)sent, (unsigned)duration,
                   httpCode, (unsigned)freeHeap, rssi);
 
-    if (httpCode > 0) 
+    if (httpCode >= 200 && httpCode < 300) 
     {
+      client.stop();
       return httpCode;
     } 
     else 
     {
-      Serial.println("Server odpověděl s chybou.");
+      Serial.printf("Server odpověděl s chybou %d.", httpCode);
     }
   } 
   else 
