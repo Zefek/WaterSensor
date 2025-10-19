@@ -1,12 +1,13 @@
-#include "camera.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <HTTPClient.h>
+#include "camera.h"
 #include "config.h"
 
 size_t CHUNK_SIZE = 1024;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 5;
 const uint16_t CLIENT_TIMEOUT_S = 30;
+const int BASE_DELAY_MS = 1000;
+const int MAX_RETRIES = 5;
 
 //Interval snímání (5 minut)
 const unsigned long interval = 5 * 60 * 1000;
@@ -42,6 +43,98 @@ int readHttpStatus(WiFiClient& client)
   return -1;
 }
 
+int sendDataRecursive(camera_fb_t* fb, size_t len, int attempt = 1) 
+{
+  if (attempt > MAX_RETRIES) 
+  {
+    Serial.printf("Fotku se nepodařilo odeslat ani na %d pokus.\n", MAX_RETRIES);
+    return -1;
+  }
+
+  Serial.printf("[Pokus %d] Připojuji se k serveru...\n", attempt);
+
+  WiFiClientSecure client;
+  client.setTimeout(5000);
+  client.setNoDelay(true);
+  client.setInsecure();
+
+  if (!client.connect(server, port)) 
+  {
+    Serial.println("Připojení ke službě se nepodařilo.");
+    delay(BASE_DELAY_MS << (attempt - 1));
+    return sendDataRecursive(fb, len, attempt + 1);
+  }
+
+  client.printf("POST %s HTTP/1.0\r\n", endpoint);
+  client.printf("Host: %s\r\n", server);
+  client.println("User-Agent: ESP32-CAM-Watermeter/1.0");
+  client.println("Content-Type: image/jpeg");
+  client.printf("Content-Length: %u\r\n", (unsigned)len);
+  client.printf("Authorization: %s\r\n", auth);
+  client.println("Connection: close\r\n");
+  client.println();
+
+  size_t sent = 0;
+  int32_t t0 = millis();
+  while (sent < len) 
+  {
+    size_t chunk = (len - sent > CHUNK_SIZE) ? CHUNK_SIZE : (len - sent);
+    size_t wrote = client.write(fb->buf + sent, chunk);
+
+    if (wrote == 0) 
+    {
+      Serial.println("Odesílání fotky selhalo, retry...");
+      client.stop();
+      delay(BASE_DELAY_MS << (attempt - 1));
+      return sendDataRecursive(fb, len, attempt + 1);
+    }
+
+    sent += wrote;
+    if (DELAY_BETWEEN_CHUNKS_MS)
+      delay(DELAY_BETWEEN_CHUNKS_MS);
+  }
+  uint32_t duration = millis() - t0;
+  client.flush();
+  returnFb(fb);
+  deInit();
+
+  if (sent == len) 
+  {
+    
+    int httpCode = readHttpStatus(client);
+    size_t freeHeap = ESP.getFreeHeap();
+    int rssi = WiFi.RSSI();
+
+    Serial.printf("Data odeslána za %lu ms\n", duration);
+    Serial.printf("size=%u sent=%u dur=%lu code=%d freeHeap=%u rssi=%d\n",
+                  (unsigned)len, (unsigned)sent, (unsigned)duration,
+                  httpCode, (unsigned)freeHeap, rssi);
+
+    if (httpCode > 0) 
+    {
+      return httpCode;
+    } 
+    else 
+    {
+      Serial.println("Server odpověděl s chybou.");
+    }
+  } 
+  else 
+  {
+    size_t freeHeap = ESP.getFreeHeap();
+    int rssi = WiFi.RSSI();
+
+    Serial.println("Odeslání se nepodařilo.");
+    Serial.printf("size=%u sent=%u dur=%lu code=%d freeHeap=%u rssi=%d\n",
+                  (unsigned)len, (unsigned)sent, (unsigned)duration,
+                  -1, (unsigned)freeHeap, rssi);
+  }
+
+  client.stop();
+  delay(BASE_DELAY_MS << (attempt - 1));
+  return sendDataRecursive(fb, len, attempt + 1);
+}
+
 void captureAndSend() 
 {
   initCamera();
@@ -57,53 +150,7 @@ void captureAndSend()
   int rssi = WiFi.RSSI();
   Serial.print("RSSI: ");
   Serial.println(rssi);
-  WiFiClient client;
-  client.setNoDelay(true);
-  client.setTimeout(CLIENT_TIMEOUT_S);
-
-  if (!client.connect(Server, port)) 
-  {
-    returnFb(fb);
-    Serial.println("Nepodařilo se připojit ke službě.");
-    return;
-  }
-  client.printf("POST %s HTTP/1.0\r\n", endpoint);
-  client.printf("Host: %s\r\n", Server);
-  client.println("User-Agent: ESP32-CAM-Watermeter/1.0");
-  client.println("Content-Type: application/octet-stream");
-  client.printf("Content-Length: %u\r\n", (unsigned)len);
-  client.printf("Authorization: %s\r\n", auth);
-  client.println("Connection: close\r\n");
-
-  size_t sent = 0;
-  
-  uint32_t t0 = millis();
-  while (sent < len) 
-  {
-    size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
-    size_t wrote = client.write(fb->buf + sent, chunk);
-    if (wrote == 0) 
-    {
-      break;
-    }
-    sent += wrote;
-    if (DELAY_BETWEEN_CHUNKS_MS) 
-    {
-      delay(DELAY_BETWEEN_CHUNKS_MS);
-    }
-  }
-  client.flush();
-  returnFb(fb);
-  deInit();
-  uint32_t duration = millis() - t0;
-
-  int httpCode = readHttpStatus(client);
-  client.stop();
-  size_t freeHeap = ESP.getFreeHeap();
-  rssi = WiFi.RSSI();
-
-  Serial.printf("size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
-        (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);  
+  sendDataRecursive(fb, len);
 }
 
 void connectToWifi()
