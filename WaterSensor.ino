@@ -4,94 +4,124 @@
 #include <HTTPClient.h>
 #include "config.h"
 
-size_t CHUNK_SIZE = 512;
+size_t CHUNK_SIZE = 1024;
+const uint16_t DELAY_BETWEEN_CHUNKS_MS = 5;
+const uint16_t CLIENT_TIMEOUT_S = 30;
 
-// ⏱ Interval snímání (5 minut)
+//Interval snímání (5 minut)
 const unsigned long interval = 5 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
 
-// 📸 Snímání a odeslání fotky
+int readHttpStatus(WiFiClient& client) 
+{
+  uint32_t start = millis();
+  String statusLine = "";
+  while (millis() - start < (uint32_t)CLIENT_TIMEOUT_S * 1000) 
+  {
+    if (!client.connected() && client.available() == 0) 
+    {
+      return -1;
+    }
+    if (client.available()) 
+    {
+      statusLine = client.readStringUntil('\n');
+      statusLine.trim();
+      if (statusLine.length() > 0) 
+      {
+        int firstSpace = statusLine.indexOf(' ');
+        if (firstSpace > 0) {
+          int secondSpace = statusLine.indexOf(' ', firstSpace + 1);
+          String codeStr = (secondSpace > firstSpace) ? statusLine.substring(firstSpace + 1, secondSpace) : statusLine.substring(firstSpace + 1);
+          int code = codeStr.toInt();
+          return code;
+        }
+      }
+    }
+    delay(5);
+  }
+  return -1;
+}
+
 void captureAndSend() 
 {
+  initCamera();
   camera_fb_t* fb = capture();
+
   if (!fb) 
   {
-    Serial.println("❌ Chyba při pořizování obrázku");
+    Serial.println("Chyba při pořizování obrázku");
     return;
   }
-  Serial.printf("📸 Pořízen obrázek (%d B)\n", fb->len);
-  WiFiClientSecure client;
-  client.setInsecure();
-  Serial.println("Připojení k serveru");
-  if (!client.connect(Server, 443)) {
-    Serial.println("❌ Nelze se připojit k serveru");
-    returnFb(fb);
-    return;
-  }
-  Serial.println("Připojeno");
-  String boundary = "ESP32CAM";
-  String bodyStart = "--" + boundary + "\r\n"
-                     "Content-Disposition: form-data; name=\"file\"; filename=\"vodomer.jpg\"\r\n"
-                     "Content-Type: image/jpeg\r\n\r\n";
-  String bodyEnd   = "\r\n--" + boundary + "--\r\n";
+  size_t len = fb->len;
+  Serial.printf("Pořízen obrázek (%d B)\n", len);
+  int rssi = WiFi.RSSI();
+  Serial.print("RSSI: ");
+  Serial.println(rssi);
+  WiFiClient client;
+  client.setNoDelay(true);
+  client.setTimeout(CLIENT_TIMEOUT_S);
 
-  int contentLength = bodyStart.length() + fb->len + bodyEnd.length();
-  Serial.print("Délka požadavku ");
-  Serial.println(contentLength);
-  Serial.println("Odesílám požadavek");
-  // Vytvoření HTTP požadavku
-  client.println("POST " + String(endpoint) + " HTTP/1.1");
-  client.println("Host: " + String(Server));
-  client.println("Authorization: Basic " + String(auth));
-  client.println("Content-Type: multipart/form-data; boundary=" + boundary);
-  client.println("Content-Length: " + String(contentLength));
-  client.println();  // konec hlaviček
-
-  // Tělo požadavku
-  client.print(bodyStart);
-  size_t bytesSent = 0;
-  while (bytesSent < fb->len) 
+  if (!client.connect(Server, port)) 
   {
-    size_t bytesToSend = min(CHUNK_SIZE, fb->len - bytesSent);
-    client.write(fb->buf + bytesSent, bytesToSend);
-    bytesSent += bytesToSend;
+    returnFb(fb);
+    Serial.println("Nepodařilo se připojit ke službě.");
+    return;
   }
-  client.print(bodyEnd);
+  client.printf("POST %s HTTP/1.0\r\n", endpoint);
+  client.printf("Host: %s\r\n", Server);
+  client.println("User-Agent: ESP32-CAM-Watermeter/1.0");
+  client.println("Content-Type: application/octet-stream");
+  client.printf("Content-Length: %u\r\n", (unsigned)len);
+  client.printf("Authorization: %s\r\n", auth);
+  client.println("Connection: close\r\n");
+
+  size_t sent = 0;
+  
+  uint32_t t0 = millis();
+  while (sent < len) 
+  {
+    size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
+    size_t wrote = client.write(fb->buf + sent, chunk);
+    if (wrote == 0) 
+    {
+      break;
+    }
+    sent += wrote;
+    if (DELAY_BETWEEN_CHUNKS_MS) 
+    {
+      delay(DELAY_BETWEEN_CHUNKS_MS);
+    }
+  }
   client.flush();
-  Serial.println("Požadavek odeslán, čekám na odpověď");
-  // Čtení odpovědi
-  while (client.connected()) {
-    String line = client.readStringUntil('\n');
-    if (line == "\r") break;  // konec hlaviček
-  }
-
-  String response = client.readString();
-  Serial.println("✅ Odpověď serveru:");
-  Serial.println(response);
-
   returnFb(fb);
+  deInit();
+  uint32_t duration = millis() - t0;
+
+  int httpCode = readHttpStatus(client);
+  client.stop();
+  size_t freeHeap = ESP.getFreeHeap();
+  rssi = WiFi.RSSI();
+
+  Serial.printf("size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
+        (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);  
+}
+
+void connectToWifi()
+{
+  WiFi.begin(WifiSSID, WifiPassword);
+  Serial.print("Připojuji se na Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) 
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWi-Fi připojeno");
 }
 
 void setup() 
 {
   Serial.begin(115200);
   delay(1000);
-
-  WiFi.begin(WifiSSID, WifiPassword);
-  Serial.print("🔌 Připojuji se na Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) 
-  {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\n✅ Wi-Fi připojeno");
-
-  if (!initCamera()) 
-  {
-    Serial.println("💀 Chyba při inicializaci kamery");
-    while (true);
-  }
-
   lastCaptureTime = millis() - interval; // pro okamžité první snímání
 }
 
@@ -99,20 +129,15 @@ void loop()
 {
   if(WiFi.status() != WL_CONNECTED)
   {
-    WiFi.begin(WifiSSID, WifiPassword);
-    Serial.print("🔌 Připojuji se na Wi-Fi");
-    while (WiFi.status() != WL_CONNECTED) 
-    {
-      delay(500);
-      Serial.print(".");
-    }
+    connectToWifi();
   }
+  
   if (millis() - lastCaptureTime >= interval) 
   {
-    Serial.println("📸 Pořizuji snímek a odesílám...");
+    Serial.println("Pořizuji snímek a odesílám...");
     captureAndSend();
     lastCaptureTime = millis();
   }
 
-  delay(1000); // šetřič CPU
+  delay(1000);
 }

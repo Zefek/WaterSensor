@@ -6,5 +6,6 @@ void setupLedFlash();
 void ledFlashOn();
 void ledFlashOff();
 bool initCamera();
+bool deInit();
 camera_fb_t* capture();
 void returnFb(camera_fb_t* fb);
