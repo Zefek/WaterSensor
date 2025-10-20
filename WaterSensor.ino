@@ -1,8 +1,6 @@
 #include "camera.h"
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include "config.h"
+#include <WiFi.h>
 
 size_t CHUNK_SIZE = 1024;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 5;
@@ -61,7 +59,7 @@ void captureAndSend()
   client.setNoDelay(true);
   client.setTimeout(CLIENT_TIMEOUT_S);
 
-  if (!client.connect(Server, port)) 
+  if (!client.connect(Server, Port)) 
   {
     returnFb(fb);
     Serial.println("Nepodařilo se připojit ke službě.");

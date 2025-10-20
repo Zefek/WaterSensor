@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include "camera.h"
-#define CAMERA_MODEL_AI_THINKER
 #include "pin_config.h"
 #include "esp_camera.h"
 #include "esp_psram.h"
