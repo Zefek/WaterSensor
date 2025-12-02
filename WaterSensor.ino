@@ -2,8 +2,8 @@
 #include "config.h"
 #include <WiFi.h>
 
-size_t CHUNK_SIZE = 1024;
-const uint16_t DELAY_BETWEEN_CHUNKS_MS = 5;
+size_t CHUNK_SIZE = 512;
+const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
 const uint16_t CLIENT_TIMEOUT_S = 30;
 
 //Interval snímání (5 minut)
@@ -55,42 +55,86 @@ void captureAndSend()
   int rssi = WiFi.RSSI();
   Serial.print("RSSI: ");
   Serial.println(rssi);
-  WiFiClient client;
-  client.setNoDelay(true);
-  client.setTimeout(CLIENT_TIMEOUT_S);
-
-  if (!client.connect(Server, Port)) 
-  {
-    returnFb(fb);
-    Serial.println("Nepodařilo se připojit ke službě.");
-    return;
-  }
-  client.printf("POST %s HTTP/1.0\r\n", endpoint);
-  client.printf("Host: %s\r\n", Server);
-  client.println("User-Agent: ESP32-CAM-Watermeter/1.0");
-  client.println("Content-Type: application/octet-stream");
-  client.printf("Content-Length: %u\r\n", (unsigned)len);
-  client.printf("Authorization: %s\r\n", auth);
-  client.println("Connection: close\r\n");
-
+  int tryCount = 0;
   size_t sent = 0;
-  
   uint32_t t0 = millis();
-  while (sent < len) 
+  WiFiClient client;
+  do
   {
-    size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
-    size_t wrote = client.write(fb->buf + sent, chunk);
-    if (wrote == 0) 
+    client.stop();
+    client.setNoDelay(true);
+    client.setTimeout(CLIENT_TIMEOUT_S);
+    if(tryCount > 0)
     {
-      break;
+      delay(5000);
     }
-    sent += wrote;
+    if (!client.connect(Server, Port)) 
+    {
+      Serial.println("Nepodařilo se připojit ke službě.");
+      if(tryCount == 5)
+      {
+        break;
+      }
+      tryCount++;
+      continue;
+    }
+    client.printf("POST %s HTTP/1.0\r\n", endpoint);
+    client.printf("Host: %s\r\n", Server);
+    client.println("User-Agent: ESP32-CAM-Watermeter/1.0");
+    client.println("Content-Type: application/octet-stream");
+    client.printf("Content-Length: %u\r\n", (unsigned)len);
+    client.printf("Authorization: %s\r\n", auth);
+    client.println("Connection: close\r\n");
+
+    sent = 0;
+  
+    t0 = millis();
+    uint32_t tStart = millis();
+
+    while (sent < len && client.connected()) 
+    {
+      size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
+      uint32_t t_chunk_start = millis();
+      size_t wrote = client.write(fb->buf + sent, chunk);
+      if (wrote == 0) 
+      {
+        if(millis() - tStart > 5000)
+        {
+          client.stop();
+          break;
+        }
+        if (DELAY_BETWEEN_CHUNKS_MS) 
+        {
+          delay(DELAY_BETWEEN_CHUNKS_MS);
+        }
+      }
+      else
+      {
+        tStart = millis();
+      }
+      uint32_t t_chunk_end = millis();
+      uint32_t delta_ms = t_chunk_end - t_chunk_start;
+      float speed_kB_s = (wrote / 1024.0) / (delta_ms / 1000.0); // rychlost v kB/s
+      Serial.printf("TryCount %d  Chunk [%u, %u] odesláno %u bajtů, doba: %u ms, rychlost: %.2f kB/s\n",
+                    tryCount,
+                    (unsigned int)sent,
+                    (unsigned int)chunk,
+                    (unsigned int)wrote,
+                   (unsigned int)delta_ms,
+                   speed_kB_s);
+      sent += wrote;
+      if (DELAY_BETWEEN_CHUNKS_MS) 
+      {
+        delay(DELAY_BETWEEN_CHUNKS_MS);
+      }
+    }
     if (DELAY_BETWEEN_CHUNKS_MS) 
     {
       delay(DELAY_BETWEEN_CHUNKS_MS);
     }
+    tryCount++;
   }
-  client.flush();
+  while(sent < len && tryCount < 5);
   returnFb(fb);
   deInit();
   uint32_t duration = millis() - t0;
@@ -100,8 +144,8 @@ void captureAndSend()
   size_t freeHeap = ESP.getFreeHeap();
   rssi = WiFi.RSSI();
 
-  Serial.printf("size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
-        (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);  
+  Serial.printf("Trycount = %d  size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
+        tryCount, (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);  
 }
 
 void connectToWifi()
