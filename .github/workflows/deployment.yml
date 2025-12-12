@@ -1,0 +1,37 @@
+name: Deploy WaterSensor on Environment
+
+on:
+  deployment:
+
+jobs:
+  deployment:
+    runs-on: [self-hosted, iot]
+    environment: Home
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install required board core
+        run: | 
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json 
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml core update-index 
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml core install esp32:esp32 
+          
+      - name: Set configs (Windows)
+        shell: powershell
+        run: |
+          $env:CONFIG_H | Out-File -Encoding ascii config.h
+        env:
+          CONFIG_H: ${{ secrets.CONFIG_H }}
+
+      - name: Compile Arduino project
+        run: |
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile --fqbn esp32:esp32:esp32cam ./ --output-dir build
+
+      - name: Upload firmware to Arduino
+        run: |
+          $port = "${{ github.event.deployment.payload.serial_port }}"
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe --config-file config.yaml upload --fqbn esp32:esp32:esp32cam --port $port --input-dir build --upload-speed 115200
+
