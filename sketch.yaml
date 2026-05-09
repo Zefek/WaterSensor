@@ -1,7 +1,9 @@
 profiles:
-  WaterSensor_EPS32:
-    fqbn: eps32:eps32:eps32cam
+  WaterSensor_ESP32:
+    fqbn: esp32:esp32:esp32cam
     platforms:
-      - platform: eps32:eps32 (3.2.0)
+      - platform: esp32:esp32 (3.2.0)
         platform_index_url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-default_profile: WaterSensor_EPS32
+    port_config:
+      baudrate: 115200
+default_profile: WaterSensor_ESP32
