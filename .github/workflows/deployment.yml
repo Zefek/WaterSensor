@@ -59,10 +59,10 @@ jobs:
 
       - name: Compile Arduino project
         run: |
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile --profile WaterSensor_EPS32 ./ --output-dir build
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile --profile WaterSensor_ESP32 ./ --output-dir build
 
       - name: Upload firmware to Arduino
         run: |
           $port = "${{ github.event.deployment.payload.serial_port }}"
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe --config-file config.yaml upload --profile WaterSensor_EPS32 --port $port --input-dir build --upload-speed 115200
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe --config-file config.yaml upload --profile WaterSensor_ESP32 --port $port --input-dir build
 
