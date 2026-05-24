@@ -1,4 +1,4 @@
-name: Deploy WaterSensor on Environment
+name: Deploy WaterSensor prediction on Environment
 
 on:
   deployment:
@@ -6,17 +6,13 @@ on:
 jobs:
   deployment:
     runs-on: [self-hosted, iot]
-    environment: Home
+    environment: Home_Prediction
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install required board core
-        run: |
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml core update-index
-  
       - name: Set configs (Windows)
         shell: powershell
         env:
@@ -24,7 +20,7 @@ jobs:
           SECRETS_SHARE_USER: ${{ secrets.SECRETS_SHARE_USER }}
           SECRETS_SHARE_PASS: ${{ secrets.SECRETS_SHARE_PASS }}
           SECRETS_REPO_NAME:  ${{ secrets.SECRETS_REPO_NAME }}
-          DEVICE_NAME:        WaterSensor
+          DEVICE_NAME:        Odecty_Python
         run: |
           $ErrorActionPreference = 'Stop'
           $secretsDir = Join-Path $env:RUNNER_TEMP 'secrets'
@@ -61,12 +57,13 @@ jobs:
               $global:LASTEXITCODE = 0
           }
 
-      - name: Compile Arduino project
+      - name: Kopírování souborů
+        shell: powershell
+        env:
+          TARGET_PATH: ${{ vars.TARGET_PATH }}
         run: |
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile ./src/WaterSensor --output-dir build
-
-      - name: Upload firmware to Arduino
-        run: |
-          $port = "${{ github.event.deployment.payload.serial_port }}"
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe --config-file config.yaml upload --port $port --input-dir build
-
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path $env:TARGET_PATH)) {
+            New-Item -ItemType Directory -Path $env:TARGET_PATH -Force | Out-Null
+          }
+          Copy-Item -Path "$env:GITHUB_WORKSPACE\src\Recognition\*" -Destination $env:TARGET_PATH -Recurse -Force

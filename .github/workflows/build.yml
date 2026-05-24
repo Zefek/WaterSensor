@@ -23,4 +23,4 @@ jobs:
 
       - name: Compile firmware
         run: |
-          arduino-cli compile --profile WaterSensor_ESP32 ./
+          arduino-cli compile ./src/WaterSensor
