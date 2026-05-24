@@ -6,11 +6,16 @@ on:
       serial_port:
         required: true
         type: string
+      environment:
+        required: true
+        type: choice
+        options:
+          - Home
 
 jobs:
   deployment:
     runs-on: [self-hosted, iot]
-    environment: Home
+    environment: ${{ inputs.environment }}
 
     steps:
 
