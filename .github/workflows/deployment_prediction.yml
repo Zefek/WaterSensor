@@ -1,12 +1,12 @@
 name: Deploy WaterSensor prediction on Environment
 
 on:
-  deployment:
+  workflow_dispatch:
 
 jobs:
   deployment:
-    runs-on: [self-hosted, iot]
-    environment: Home_Prediction
+    runs-on: [self-hosted, python]
+    environment: Home
 
     steps:
 
