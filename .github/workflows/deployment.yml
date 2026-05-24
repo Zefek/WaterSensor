@@ -77,5 +77,5 @@ jobs:
       - name: Upload firmware to Arduino
         run: |
           $port = "${{ github.event.inputs.serial_port }}"
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml upload --port $port --input-dir build
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml upload ./src/WaterSensor --port $port --input-dir build
 
