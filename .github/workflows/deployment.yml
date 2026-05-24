@@ -1,7 +1,11 @@
 name: Deploy WaterSensor on Environment
 
 on:
-  deployment:
+  workflow_dispatch:
+    inputs:
+      serial_port:
+        required: true
+        type: string
 
 jobs:
   deployment:
@@ -67,6 +71,6 @@ jobs:
 
       - name: Upload firmware to Arduino
         run: |
-          $port = "${{ github.event.deployment.payload.serial_port }}"
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe --config-file config.yaml upload --port $port --input-dir build
+          $port = "${{ github.event.inputs.serial_port }}"
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml upload --port $port --input-dir build
 
