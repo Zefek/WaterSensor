@@ -1,31 +1,18 @@
-name: Deploy WaterSensor on Environment
+name: Deploy WaterSensor prediction on Environment
 
 on:
   workflow_dispatch:
-    inputs:
-      serial_port:
-        required: true
-        type: string
-      environment:
-        required: true
-        type: choice
-        options:
-          - Home
 
 jobs:
   deployment:
-    runs-on: [self-hosted, iot]
-    environment: ${{ inputs.environment }}
+    runs-on: [self-hosted, python]
+    environment: Home
 
     steps:
 
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install required board core
-        run: |
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml core update-index
-  
       - name: Set configs (Windows)
         shell: powershell
         env:
@@ -33,7 +20,8 @@ jobs:
           SECRETS_SHARE_USER: ${{ secrets.SECRETS_SHARE_USER }}
           SECRETS_SHARE_PASS: ${{ secrets.SECRETS_SHARE_PASS }}
           SECRETS_REPO_NAME:  ${{ secrets.SECRETS_REPO_NAME }}
-          DEVICE_NAME:        WaterSensor
+          TARGET_PATH: ${{ vars.TARGET_PATH }}
+          DEVICE_NAME:        Odecty_Python
         run: |
           $ErrorActionPreference = 'Stop'
           $secretsDir = Join-Path $env:RUNNER_TEMP 'secrets'
@@ -55,7 +43,7 @@ jobs:
               $deployScript = Join-Path $secretsDir "$env:DEVICE_NAME\deploy.ps1"
               if (-not (Test-Path $deployScript)) { throw "deploy.ps1 not found at $deployScript" }
 
-              & $deployScript -OutputDir $env:GITHUB_WORKSPACE/src/WaterSensor
+              & $deployScript -OutputDir $env:TARGET_PATH
               if ($LASTEXITCODE -ne 0) { throw "deploy.ps1 failed (exit $LASTEXITCODE)" }
           }
           finally {
@@ -70,12 +58,13 @@ jobs:
               $global:LASTEXITCODE = 0
           }
 
-      - name: Compile Arduino project
+      - name: Kopírování souborů
+        shell: powershell
+        env:
+          TARGET_PATH: ${{ vars.TARGET_PATH }}
         run: |
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile ./src/WaterSensor --output-dir build
-
-      - name: Upload firmware to Arduino
-        run: |
-          $port = "${{ github.event.inputs.serial_port }}"
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml upload ./src/WaterSensor --port $port --input-dir build
-
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path $env:TARGET_PATH)) {
+            New-Item -ItemType Directory -Path $env:TARGET_PATH -Force | Out-Null
+          }
+          Copy-Item -Path "$env:GITHUB_WORKSPACE\src\Recognition\*" -Destination $env:TARGET_PATH -Recurse -Force
