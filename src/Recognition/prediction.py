@@ -1,12 +1,11 @@
 import numpy as np
-from tensorflow.keras.utils import load_img, img_to_array
+from tensorflow.keras.utils import img_to_array
 from tensorflow.keras.models import load_model
 from PIL import Image
 import json
 import cv2
 import pika
 import os
-import glob
 import math
 import time
 
@@ -47,7 +46,6 @@ def detect_jpeg_glitch(path, threshold=30):
 
 def preprocess_image(image_path):
     values = {}
-    inputs = []
     results = []
     values["file"] = image_path
     imageOk = detect_jpeg_glitch(os.path.join(imageFolder, image_path))
@@ -87,7 +85,6 @@ def preprocess_image(image_path):
         img2_cv = cv2.cvtColor(img2_np, cv2.COLOR_RGB2BGR)
         hsv = cv2.cvtColor(img2_cv, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, lower, upper)
-        r = cv2.bitwise_and(img2_np, img2_np, mask=mask)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             cnt = max(contours, key=cv2.contourArea)
@@ -107,7 +104,7 @@ def preprocess_image(image_path):
             dy = tip[1] - center[1]
             angle_rad = np.arctan2(dy, dx)
             angle_deg = np.degrees(angle_rad)
-            angle = ((90 + angle_deg) % 360) / 36;
+            angle = ((90 + angle_deg) % 360) / 36
             print(f"Úhel ručičky je: {angle:.2f}")
             values[f"value_{counter}"] = angle
         else:

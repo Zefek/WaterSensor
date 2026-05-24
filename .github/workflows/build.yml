@@ -19,7 +19,7 @@ jobs:
 
       - name: Set configs
         run: |
-          cp config_default.h config.h
+          cp ./src/WaterSensor/config_default.h ./src/WaterSensor/config.h
 
       - name: Compile firmware
         run: |

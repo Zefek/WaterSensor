@@ -3,9 +3,11 @@ from collections import Counter
 
 import numpy as np
 import tensorflow as tf
+from PIL import Image
 from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import img_to_array
 
 import config
 
@@ -149,8 +151,6 @@ acc_in_memory = run_eval(model, test_ds, "in-memory po treninku")
 
 # 2. eval IN-MEMORY na NEcache snimcich primo z disku (jako prediction.py)
 print("\n=== Eval rovnou z disku (jako prediction.py) ===")
-from PIL import Image
-from tensorflow.keras.utils import img_to_array
 correct, total = 0, 0
 for cls in range(10):
     folder = os.path.join(DATA_ROOT, "test", str(cls))
