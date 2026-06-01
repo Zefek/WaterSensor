@@ -3,6 +3,9 @@ name: Deploy WaterSensor prediction on Environment
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   deployment:
     runs-on: [self-hosted, python]
