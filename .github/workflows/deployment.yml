@@ -12,6 +12,9 @@ on:
         options:
           - Home
 
+permissions:
+  contents: read
+
 jobs:
   deployment:
     runs-on: [self-hosted, iot]
