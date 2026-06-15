@@ -32,6 +32,23 @@ This project takes the second route: **non-invasive optical reading**.
 
 ---
 
+## Hardware / real-world installation
+
+![ESP32-CAM mounted over a household water meter](images/installation.jpg)
+
+A real install: the ESP32-CAM sits in a grey PVC/3D-printed housing clamped
+directly over the water meter's dial, looking straight down at the digit wheels
+and needle gauges. An external Wi-Fi antenna sticks out the top, a battery /
+power pack is mounted behind it, and the wiring runs into the enclosure. The
+camera and its LED flash provide consistent lighting and framing — which is what
+makes the fixed crop coordinates (`DIGIT_COORDS`, `GAUGE_AREAS`) usable: once the
+housing is fixed in place, the dial always appears in the same position.
+
+> The crop calibration in `config.py` is specific to this exact camera-to-dial
+> geometry. If the housing is moved or re-printed, recalibrate the coordinates.
+
+---
+
 ## How it works (end-to-end architecture)
 
 ```
