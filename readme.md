@@ -34,7 +34,7 @@ This project takes the second route: **non-invasive optical reading**.
 
 ## Hardware / real-world installation
 
-![ESP32-CAM mounted over a household water meter](images/installation.jpg)
+<img src="images/installation.jpg" alt="ESP32-CAM mounted over a household water meter" width="400">
 
 A real install: the ESP32-CAM sits in a grey PVC/3D-printed housing clamped
 directly over the water meter's dial, looking straight down at the digit wheels
