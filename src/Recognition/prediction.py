@@ -80,7 +80,7 @@ def preprocess_image(image_path):
     values["value"] = pocitadlo
     # Geometrický průměr (přes exp(mean(log)) kvůli numerické stabilitě) –
     # vyjadřuje důvěru v celý odečet, penalizuje i jednu nejistou číslici.
-    values["confidence"] = float(np.exp(np.mean(np.log(confidences))))
+    values["confidence"] = round(float(np.exp(np.mean(np.log(confidences)))), 4)
     print("Výsledek:", pocitadlo)
     counter = 0
     error = False
