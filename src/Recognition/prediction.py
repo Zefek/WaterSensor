@@ -55,6 +55,7 @@ def preprocess_image(image_path):
         return values
 
     img = Image.open(os.path.join(imageFolder, image_path))
+    confidences = []
     for (x, y, w, h) in coords:
         # Výřez
         cropped = img.crop((x, y, x + w, y + h)).convert("L")
@@ -73,9 +74,13 @@ def preprocess_image(image_path):
             print(f"{class_names[i]}: {pred[i]:.4f}")
         results.append(class_names[sorted_indices[0]])
         print("Predikce:", class_names[sorted_indices[0]])
+        confidences.append(pred[sorted_indices[0]])
 
     pocitadlo = "".join(results)
     values["value"] = pocitadlo
+    # Geometrický průměr (přes exp(mean(log)) kvůli numerické stabilitě) –
+    # vyjadřuje důvěru v celý odečet, penalizuje i jednu nejistou číslici.
+    values["confidence"] = round(float(np.exp(np.mean(np.log(confidences)))), 4)
     print("Výsledek:", pocitadlo)
     counter = 0
     error = False
