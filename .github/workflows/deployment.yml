@@ -75,7 +75,7 @@ jobs:
 
       - name: Compile Arduino project
         run: |
-          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile ./src/WaterSensor --output-dir build
+          & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile ./src/WaterSensor --output-dir build --build-property "compiler.cpp.extra_flags=-DFW_VERSION=${{ github.run_number }}"
 
       - name: Upload firmware to Arduino
         if: ${{ github.event.inputs.serial_port != '' }}
@@ -88,11 +88,41 @@ jobs:
         shell: powershell
         env:
           TARGET_PATH: ${{ vars.TARGET_PATH }}
+          FW_VERSION:  ${{ github.run_number }}
+          GIT_SHA:     ${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           if (-not $env:TARGET_PATH) { throw "TARGET_PATH variable is not set" }
+
+          $buildDir = Join-Path $env:GITHUB_WORKSPACE 'build'
+          $version  = $env:FW_VERSION
+
+          # Aplikační image pro OTA (ESP32 nahrává *.ino.bin, ne bootloader/partitions)
+          $appBin = Get-ChildItem -Path $buildDir -Filter '*.ino.bin' -File | Select-Object -First 1
+          if (-not $appBin) { throw "Application firmware (*.ino.bin) not found in $buildDir" }
+
+          # 1) Historie: celý build do podadresáře pojmenovaného verzí
+          $versionDir = Join-Path $env:TARGET_PATH $version
+          New-Item -ItemType Directory -Path $versionDir -Force | Out-Null
+          Copy-Item -Path "$buildDir\*" -Destination $versionDir -Recurse -Force
+
+          # 2) OTA: pevná cesta na poslední firmware + manifest
           if (-not (Test-Path $env:TARGET_PATH)) {
             New-Item -ItemType Directory -Path $env:TARGET_PATH -Force | Out-Null
           }
-          Copy-Item -Path "$env:GITHUB_WORKSPACE\build\*" -Destination $env:TARGET_PATH -Recurse -Force
+          $latestBin = Join-Path $env:TARGET_PATH 'firmware.bin'
+          Copy-Item -Path $appBin.FullName -Destination $latestBin -Force
+
+          $hash = (Get-FileHash -Path $latestBin -Algorithm SHA256).Hash.ToLower()
+          $manifest = [ordered]@{
+            version = [int]$version
+            file    = 'firmware.bin'
+            size    = (Get-Item $latestBin).Length
+            sha256  = $hash
+            commit  = $env:GIT_SHA
+          }
+          $manifestPath = Join-Path $env:TARGET_PATH 'manifest.json'
+          $manifest | ConvertTo-Json | Set-Content -Path $manifestPath -Encoding utf8
+
+          Write-Host "Firmware verze $version uložen do $versionDir; OTA: $latestBin (manifest $manifestPath)"
 

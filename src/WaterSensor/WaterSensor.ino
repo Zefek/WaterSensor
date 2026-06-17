@@ -2,6 +2,12 @@
 #include "config.h"
 #include <WiFi.h>
 
+// Verze firmwaru – vkládá ji CI při kompilaci (-DFW_VERSION=github.run_number).
+// Lokální build bez definice má verzi 0.
+#ifndef FW_VERSION
+#define FW_VERSION 0
+#endif
+
 size_t CHUNK_SIZE = 512;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
 const uint16_t CLIENT_TIMEOUT_S = 30;
@@ -164,6 +170,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
+  Serial.printf("Firmware verze: %d\n", FW_VERSION);
   lastCaptureTime = millis() - interval; // pro okamžité první snímání
 }
 
