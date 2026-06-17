@@ -87,12 +87,12 @@ jobs:
         if: ${{ github.event.inputs.serial_port == '' }}
         shell: powershell
         env:
-          TARGET_PATH: ${{ vars.TARGET_PATH }}
+          FIRMWARE_TARGET_PATH: ${{ vars.FIRMWARE_TARGET_PATH }}
           FW_VERSION:  ${{ github.run_number }}
           GIT_SHA:     ${{ github.sha }}
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not $env:TARGET_PATH) { throw "TARGET_PATH variable is not set" }
+          if (-not $env:FIRMWARE_TARGET_PATH) { throw "FIRMWARE_TARGET_PATH variable is not set" }
 
           $buildDir = Join-Path $env:GITHUB_WORKSPACE 'build'
           $version  = $env:FW_VERSION
@@ -102,27 +102,31 @@ jobs:
           if (-not $appBin) { throw "Application firmware (*.ino.bin) not found in $buildDir" }
 
           # 1) Historie: celý build do podadresáře pojmenovaného verzí
-          $versionDir = Join-Path $env:TARGET_PATH $version
+          $versionDir = Join-Path $env:FIRMWARE_TARGET_PATH $version
           New-Item -ItemType Directory -Path $versionDir -Force | Out-Null
           Copy-Item -Path "$buildDir\*" -Destination $versionDir -Recurse -Force
 
           # 2) OTA: pevná cesta na poslední firmware + manifest
-          if (-not (Test-Path $env:TARGET_PATH)) {
-            New-Item -ItemType Directory -Path $env:TARGET_PATH -Force | Out-Null
+          if (-not (Test-Path $env:FIRMWARE_TARGET_PATH)) {
+            New-Item -ItemType Directory -Path $env:FIRMWARE_TARGET_PATH -Force | Out-Null
           }
-          $latestBin = Join-Path $env:TARGET_PATH 'firmware.bin'
+          $latestBin = Join-Path $env:FIRMWARE_TARGET_PATH 'firmware.bin'
           Copy-Item -Path $appBin.FullName -Destination $latestBin -Force
 
           $hash = (Get-FileHash -Path $latestBin -Algorithm SHA256).Hash.ToLower()
-          $manifest = [ordered]@{
-            version = [int]$version
-            file    = 'firmware.bin'
-            size    = (Get-Item $latestBin).Length
-            sha256  = $hash
-            commit  = $env:GIT_SHA
-          }
-          $manifestPath = Join-Path $env:TARGET_PATH 'manifest.json'
-          $manifest | ConvertTo-Json | Set-Content -Path $manifestPath -Encoding utf8
+          $size = (Get-Item $latestBin).Length
+
+          # Jednoduchý key=value manifest – ESP32 ho rozparsuje bez JSON knihovny
+          $manifest = @(
+            "version=$version"
+            "file=firmware.bin"
+            "size=$size"
+            "sha256=$hash"
+            "commit=$($env:GIT_SHA)"
+          )
+          $manifestPath = Join-Path $env:FIRMWARE_TARGET_PATH 'manifest.txt'
+          # LF konce řádků a bez BOM – snazší parsování na zařízení
+          [System.IO.File]::WriteAllText($manifestPath, ($manifest -join "`n") + "`n")
 
           Write-Host "Firmware verze $version uložen do $versionDir; OTA: $latestBin (manifest $manifestPath)"
 
