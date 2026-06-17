@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       serial_port:
-        required: true
+        required: false
         type: string
       environment:
         required: true
@@ -78,7 +78,21 @@ jobs:
           & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml compile ./src/WaterSensor --output-dir build
 
       - name: Upload firmware to Arduino
+        if: ${{ github.event.inputs.serial_port != '' }}
         run: |
           $port = "${{ github.event.inputs.serial_port }}"
           & "$Env:RUNNER_TOOL_CACHE\arduino-cli\arduino-cli.exe" --config-file config.yaml upload ./src/WaterSensor --port $port --input-dir build
+
+      - name: Uložení firmware
+        if: ${{ github.event.inputs.serial_port == '' }}
+        shell: powershell
+        env:
+          TARGET_PATH: ${{ vars.TARGET_PATH }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:TARGET_PATH) { throw "TARGET_PATH variable is not set" }
+          if (-not (Test-Path $env:TARGET_PATH)) {
+            New-Item -ItemType Directory -Path $env:TARGET_PATH -Force | Out-Null
+          }
+          Copy-Item -Path "$env:GITHUB_WORKSPACE\build\*" -Destination $env:TARGET_PATH -Recurse -Force
 
