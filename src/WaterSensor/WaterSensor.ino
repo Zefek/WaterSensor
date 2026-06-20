@@ -2,18 +2,14 @@
 #include "config.h"
 #include <WiFi.h>
 
-// Verze firmwaru – vkládá ji CI při kompilaci (-DFW_VERSION=github.run_number).
-// Lokální build bez definice má verzi 0.
-#ifndef FW_VERSION
-#define FW_VERSION 0
-#endif
-
 size_t CHUNK_SIZE = 512;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
 const uint16_t CLIENT_TIMEOUT_S = 30;
+const int BASE_DELAY_MS = 1000;
+const int MAX_RETRIES = 5;
 
-//Interval snímání (5 minut)
-const unsigned long interval = 5 * 60 * 1000;
+//Interval snímání (1 minut)
+const unsigned long interval = 1 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
 
 int readHttpStatus(WiFiClient& client) 
@@ -63,24 +59,24 @@ void captureAndSend()
   Serial.println(rssi);
   int tryCount = 0;
   size_t sent = 0;
+  int httpCode = -1;
+  bool success = false;
   uint32_t t0 = millis();
   WiFiClient client;
   do
   {
     client.stop();
     client.setNoDelay(true);
-    client.setTimeout(CLIENT_TIMEOUT_S);
+    client.setTimeout(CLIENT_TIMEOUT_S * 1000);   // setTimeout bere ms, ne s
+
     if(tryCount > 0)
     {
-      delay(5000);
+      delay(BASE_DELAY_MS << (tryCount - 1));      // exponenciální backoff: 1,2,4,8,16 s
     }
-    if (!client.connect(Server, Port)) 
+
+    if (!client.connect(Server, Port))
     {
       Serial.println("Nepodařilo se připojit ke službě.");
-      if(tryCount == 5)
-      {
-        break;
-      }
       tryCount++;
       continue;
     }
@@ -93,23 +89,25 @@ void captureAndSend()
     client.println("Connection: close\r\n");
 
     sent = 0;
-  
+
     t0 = millis();
     uint32_t tStart = millis();
 
-    while (sent < len && client.connected()) 
+    // Vnitřní chunk-loop: trpělivý retry na write()==0 (plný TCP send buffer),
+    // bez zahazování už odeslané práce. Watchdog 5 s na úplné zaseknutí.
+    while (sent < len && client.connected())
     {
       size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
       uint32_t t_chunk_start = millis();
       size_t wrote = client.write(fb->buf + sent, chunk);
-      if (wrote == 0) 
+      if (wrote == 0)
       {
         if(millis() - tStart > 5000)
         {
           client.stop();
           break;
         }
-        if (DELAY_BETWEEN_CHUNKS_MS) 
+        if (DELAY_BETWEEN_CHUNKS_MS)
         {
           delay(DELAY_BETWEEN_CHUNKS_MS);
         }
@@ -129,29 +127,43 @@ void captureAndSend()
                    (unsigned int)delta_ms,
                    speed_kB_s);
       sent += wrote;
-      if (DELAY_BETWEEN_CHUNKS_MS) 
+      if (DELAY_BETWEEN_CHUNKS_MS)
       {
         delay(DELAY_BETWEEN_CHUNKS_MS);
       }
     }
-    if (DELAY_BETWEEN_CHUNKS_MS) 
+    if (DELAY_BETWEEN_CHUNKS_MS)
     {
       delay(DELAY_BETWEEN_CHUNKS_MS);
     }
+
+    // Úspěch potvrdíme až podle odpovědi serveru (2xx), ne jen podle sent==len.
+    if (sent == len)
+    {
+      httpCode = readHttpStatus(client);
+      if (httpCode >= 200 && httpCode < 300)
+      {
+        success = true;
+      }
+      else
+      {
+        Serial.printf("Server odpověděl chybou %d, retry...\n", httpCode);
+      }
+    }
+
     tryCount++;
   }
-  while(sent < len && tryCount < 5);
+  while(!success && tryCount < MAX_RETRIES);   // řídí se úspěchem, ne jen sent==len
   returnFb(fb);
   deInit();
+  client.stop();
   uint32_t duration = millis() - t0;
 
-  int httpCode = readHttpStatus(client);
-  client.stop();
   size_t freeHeap = ESP.getFreeHeap();
   rssi = WiFi.RSSI();
 
-  Serial.printf("Trycount = %d  size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
-        tryCount, (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);  
+  Serial.printf("Trycount=%d success=%d size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
+        tryCount, success, (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);
 }
 
 void connectToWifi()
@@ -170,7 +182,6 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
-  Serial.printf("Firmware verze: %d\n", FW_VERSION);
   lastCaptureTime = millis() - interval; // pro okamžité první snímání
 }
 
