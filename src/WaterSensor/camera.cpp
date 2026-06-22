@@ -15,13 +15,16 @@ static void lockCameraSettings(sensor_t *s)
   // takže tohle by mělo OOD spíš zmenšit. AWB zůstává zamčená (barva = gauge
   // detekce). Empirické: ae_level a gainceiling lad podle reálných snímků
   // (cíl: med L sedmičky ~172, soubor ~58 kB).
-  s->set_exposure_ctrl(s, 0);            // AEC manuál (krátká expozice)
+  // Vše manuálně/pevně. AGC auto na téhle scéně OSCILUJE: kamera streamuje
+  // pořád, ale blesk svítí jen během snímku -> mezi snímky (tma) zisk vyletí,
+  // při snímku (blesk) přepálí, pak se stáhne... → kolísání světlé↔tmavé.
+  // Pevný zisk to zastaví. Stejný důvod jako u zamčené expozice a WB.
+  s->set_exposure_ctrl(s, 0);   // AEC manuál
   s->set_aec_value(s, 270);
-  s->set_gain_ctrl(s, 1);                // AGC AUTO – zisk dorovná jas
-  s->set_gainceiling(s, GAINCEILING_8X); // strop zisku: omezí šum i přejasnění
-  s->set_ae_level(s, -1);                // cíl trochu tmavší (lad -2..0)
+  s->set_gain_ctrl(s, 0);       // AGC manuál (pevný zisk → žádná oscilace)
+  s->set_agc_gain(s, 4);        // pevný zisk; lad k med L ~172 (gain 0 dával ~160)
 
-  s->set_contrast(s, 0);                 // zpět na baseline (zelený ref měl 0)
+  s->set_contrast(s, 0);        // baseline (zelený ref měl 0)
 
   // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
   // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165, maska je
