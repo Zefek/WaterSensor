@@ -11,7 +11,7 @@
 
 #define TRANSFER_SCHEMA_VER 1
 #define DEVICE_SCHEMA_VER   1
-#define CONFIG_SCHEMA_VER   1
+#define CONFIG_SCHEMA_VER   2
 
 typedef struct __attribute__((packed)) {
   uint8_t  schema_ver;
@@ -65,9 +65,16 @@ typedef struct __attribute__((packed)) {
   uint8_t  special_effect;
   uint8_t  hmirror;
   uint8_t  vflip;
-  uint8_t  cfg_hash;        // CRC8 přes bajty [0..19]
-} config_t;                  // 21 B
-static_assert(sizeof(config_t) == 21, "config_t layout");
+  uint8_t  aec2;            // v2+
+  uint8_t  gainceiling;     // v2+
+  uint8_t  dcw;             // v2+
+  uint8_t  bpc;             // v2+
+  uint8_t  wpc;             // v2+
+  uint8_t  raw_gma;         // v2+
+  uint8_t  lenc;            // v2+
+  uint8_t  cfg_hash;        // CRC8 přes všechny bajty kromě tohoto
+} config_t;                  // 28 B
+static_assert(sizeof(config_t) == 28, "config_t layout");
 
 static uint32_t   s_bootId = 0;
 static uint32_t   s_seq = 0;
@@ -132,6 +139,13 @@ static uint8_t buildConfig(config_t* c)
     c->special_effect = (uint8_t)s->status.special_effect;
     c->hmirror        = (uint8_t)s->status.hmirror;
     c->vflip          = (uint8_t)s->status.vflip;
+    c->aec2           = (uint8_t)s->status.aec2;
+    c->gainceiling    = (uint8_t)s->status.gainceiling;
+    c->dcw            = (uint8_t)s->status.dcw;
+    c->bpc            = (uint8_t)s->status.bpc;
+    c->wpc            = (uint8_t)s->status.wpc;
+    c->raw_gma        = (uint8_t)s->status.raw_gma;
+    c->lenc           = (uint8_t)s->status.lenc;
   }
   c->cfg_hash = crc8((const uint8_t*)c, sizeof(config_t) - 1);
   s_cfgHashCache = c->cfg_hash;
