@@ -2,6 +2,7 @@
 #include "ota.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <time.h>
 #include "config.h"
 
 size_t CHUNK_SIZE = 512;
@@ -79,7 +80,13 @@ void captureAndSend()
 
     if (!client.connect(Server, Port))
     {
-      Serial.println("Nepodařilo se připojit ke službě.");
+      char errBuf[120] = {0};
+      int sslErr = client.lastError(errBuf, sizeof(errBuf));
+      Serial.printf("Nepodařilo se připojit ke službě %s:%d. sslErr=%d (%s) freeHeap=%u maxAlloc=%u time=%ld\n",
+                    Server, (int)Port, sslErr, errBuf,
+                    (unsigned)ESP.getFreeHeap(),
+                    (unsigned)ESP.getMaxAllocHeap(),
+                    (long)time(nullptr));
       tryCount++;
       continue;
     }
