@@ -45,9 +45,8 @@ int readHttpStatus(WiFiClient& client)
   return -1;
 }
 
-void captureAndSend() 
+void captureAndSend()
 {
-  initCamera();
   camera_fb_t* fb = capture();
 
   if (!fb) 
@@ -67,6 +66,8 @@ void captureAndSend()
   uint32_t t0 = millis();
   WiFiClientSecure client;
   client.setCACert(RootCA);
+  Serial.printf("Pred TLS (kamera aktivni): freeHeap=%u maxAlloc=%u\n",
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   do
   {
     client.stop();
@@ -163,7 +164,6 @@ void captureAndSend()
   }
   while(!success && tryCount < MAX_RETRIES);
   returnFb(fb);
-  deInit();
   client.stop();
   uint32_t duration = millis() - t0;
 
@@ -187,10 +187,18 @@ void connectToWifi()
   otaBegin();
 }
 
-void setup() 
+void setup()
 {
   Serial.begin(115200);
   delay(1000);
+
+  if (!initCamera())
+  {
+    Serial.println("Kamera se nepodařila inicializovat, restartuji...");
+    delay(2000);
+    ESP.restart();
+  }
+
   lastCaptureTime = millis() - interval;
 }
 
