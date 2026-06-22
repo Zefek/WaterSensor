@@ -9,7 +9,14 @@
 static void lockCameraSettings(sensor_t *s)
 {
   s->set_sharpness(s, 1);
-  s->set_ae_level(s, -2);
+
+  // Lesklý bílý ciferník pod bleskem auto-expozice přepaluje a ae_level to
+  // neutáhne (aec_value zůstával ~168). Přejdeme na ruční expozici: krátký čas
+  // + minimální zisk. Blesk svítí konzistentně, takže pevná expozice sedí.
+  s->set_exposure_ctrl(s, 0);   // vypnout AEC (ruční režim)
+  s->set_aec_value(s, 50);      // 0..1200, nižší = tmavší; lad v rozsahu ~30–120
+  s->set_gain_ctrl(s, 0);       // vypnout AGC
+  s->set_agc_gain(s, 0);        // minimální zisk
 }
 
 void printSensorValues(sensor_t *s) 
