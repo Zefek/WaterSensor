@@ -14,11 +14,11 @@ static void lockCameraSettings(sensor_t *s)
   // neutáhne (aec_value zůstával ~168). Přejdeme na ruční expozici: krátký čas
   // + minimální zisk. Blesk svítí konzistentně, takže pevná expozice sedí.
   s->set_exposure_ctrl(s, 0);   // vypnout AEC (ruční režim)
-  s->set_aec_value(s, 250);     // 0..1200, vyšší = světlejší; lad k vzhledu ref. snímku
+  s->set_aec_value(s, 270);     // 0..1200, vyšší = světlejší; lad k vzhledu ref. snímku
   s->set_gain_ctrl(s, 0);       // vypnout AGC
   s->set_agc_gain(s, 0);        // minimální zisk
 
-  s->set_contrast(s, 1);        // -2..2, zvýrazní tmavé číslice proti světlému ciferníku
+  s->set_contrast(s, 0);        // -2..2, zvýrazní tmavé číslice proti světlému ciferníku
 
   // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
   // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165, maska je
