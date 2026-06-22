@@ -1,6 +1,8 @@
 #include "camera.h"
 #include "config.h"
+#include "ota.h"
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 
 size_t CHUNK_SIZE = 512;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
@@ -62,16 +64,17 @@ void captureAndSend()
   int httpCode = -1;
   bool success = false;
   uint32_t t0 = millis();
-  WiFiClient client;
+  WiFiClientSecure client;
+  client.setCACert(RootCA);
   do
   {
     client.stop();
     client.setNoDelay(true);
-    client.setTimeout(CLIENT_TIMEOUT_S * 1000);   // setTimeout bere ms, ne s
+    client.setTimeout(CLIENT_TIMEOUT_S * 1000);
 
     if(tryCount > 0)
     {
-      delay(BASE_DELAY_MS << (tryCount - 1));      // exponenciální backoff: 1,2,4,8,16 s
+      delay(BASE_DELAY_MS << (tryCount - 1));
     }
 
     if (!client.connect(Server, Port))
@@ -93,8 +96,6 @@ void captureAndSend()
     t0 = millis();
     uint32_t tStart = millis();
 
-    // Vnitřní chunk-loop: trpělivý retry na write()==0 (plný TCP send buffer),
-    // bez zahazování už odeslané práce. Watchdog 5 s na úplné zaseknutí.
     while (sent < len && client.connected())
     {
       size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
@@ -153,7 +154,7 @@ void captureAndSend()
 
     tryCount++;
   }
-  while(!success && tryCount < MAX_RETRIES);   // řídí se úspěchem, ne jen sent==len
+  while(!success && tryCount < MAX_RETRIES);
   returnFb(fb);
   deInit();
   client.stop();
@@ -170,19 +171,20 @@ void connectToWifi()
 {
   WiFi.begin(WifiSSID, WifiPassword);
   Serial.print("Připojuji se na Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) 
+  while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
     Serial.print(".");
   }
   Serial.println("\nWi-Fi připojeno");
+  otaBegin();
 }
 
 void setup() 
 {
   Serial.begin(115200);
   delay(1000);
-  lastCaptureTime = millis() - interval; // pro okamžité první snímání
+  lastCaptureTime = millis() - interval;
 }
 
 void loop() 
@@ -191,13 +193,15 @@ void loop()
   {
     connectToWifi();
   }
-  
-  if (millis() - lastCaptureTime >= interval) 
+  if(WiFi.status() == WL_CONNECTED)
   {
-    Serial.println("Pořizuji snímek a odesílám...");
-    captureAndSend();
-    lastCaptureTime = millis();
+    if (millis() - lastCaptureTime >= interval)
+    {
+      Serial.println("Pořizuji snímek a odesílám...");
+      captureAndSend();
+      lastCaptureTime = millis();
+    }
+    otaLoop();
   }
-
   delay(1000);
 }
