@@ -18,6 +18,8 @@ static void lockCameraSettings(sensor_t *s)
   s->set_gain_ctrl(s, 0);       // vypnout AGC
   s->set_agc_gain(s, 0);        // minimální zisk
 
+  s->set_contrast(s, 1);        // -2..2, zvýrazní tmavé číslice proti světlému ciferníku
+
   // POZOR: NEsnižovat saturaci ani nezamykat AWB. Model watersensor.keras je
   // natrénovaný na snímcích se zeleným nádechem a vybledlými oranžovými
   // ručičkami – ten vzhled chceme zachovat, ne "vyčistit" do neutrální barvy.
