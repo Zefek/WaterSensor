@@ -17,6 +17,10 @@ static void lockCameraSettings(sensor_t *s)
   s->set_aec_value(s, 50);      // 0..1200, nižší = tmavší; lad v rozsahu ~30–120
   s->set_gain_ctrl(s, 0);       // vypnout AGC
   s->set_agc_gain(s, 0);        // minimální zisk
+
+  // Silný zelený nádech (blesk + AWB) – snížením saturace ho utlumíme.
+  // Pro čtení číslic je barva nepodstatná, čitelnost je důležitější.
+  s->set_saturation(s, -2);     // -2..2
 }
 
 void printSensorValues(sensor_t *s) 
