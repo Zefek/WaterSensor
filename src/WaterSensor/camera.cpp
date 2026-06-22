@@ -4,9 +4,12 @@
 #include "esp_camera.h"
 #include "esp_psram.h"
 
+#define USE_LED_FLASH 1
+
 static void lockCameraSettings(sensor_t *s)
 {
   s->set_sharpness(s, 1);
+  s->set_ae_level(s, -2);
 }
 
 void printSensorValues(sensor_t *s) 
@@ -137,14 +140,14 @@ bool initCamera()
 
 camera_fb_t* capture()
 {
-  #if defined(LED_GPIO_NUM)
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOn();
   #endif
   unsigned long t = micros();
   camera_fb_t* fb = esp_camera_fb_get();
   Serial.print("Time: ");
   Serial.println(micros() - t);
-  #if defined(LED_GPIO_NUM)
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOff();
   #endif
   sensor_t *s = esp_camera_sensor_get();
