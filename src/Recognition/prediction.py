@@ -168,10 +168,12 @@ def callback(ch, method, properties, body):
     print("Přijato:", body.decode())
     body_str = body.decode('utf-8')
     data = json.loads(body_str)
+    corrId = data.get("CorrelationId")
     fileExists = wait_for_file(data["FileName"])
     if fileExists:
         result = preprocess_image(data["FileName"])
         result["gaugeId"] = data["GaugeId"]
+        result["correlationId"] = corrId
         message = json.dumps(result)
         if result["result"] == "OK":
             d4 = int(math.floor(result["value_3"]))
@@ -191,6 +193,7 @@ def callback(ch, method, properties, body):
         notFound = {
             "file": data["FileName"],
             "gaugeId": data["GaugeId"],
+            "correlationId": corrId,
             "result": "Fail",
             "value": "",
             "value_0": -1,
