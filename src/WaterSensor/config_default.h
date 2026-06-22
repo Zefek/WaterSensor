@@ -9,7 +9,7 @@
 #define OtaPassword "OtaPassword"
 
 // Kořenový certifikát (CA), proti kterému se ověřují TLS certifikáty serverů
-// (OTA i odesílání snímků). V reálném config.h ho nahradí HomeCA z tajného repa.
+// (OTA i odesílání snímků).
 #define RootCA R"EOF(
 -----BEGIN CERTIFICATE-----
 -----END CERTIFICATE-----

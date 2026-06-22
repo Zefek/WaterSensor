@@ -1,8 +1,8 @@
 #include "ota.h"
-#include "config.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
+#include "config.h"
 
 #ifndef OTA_NTP_SERVER
 #define OTA_NTP_SERVER "pool.ntp.org"

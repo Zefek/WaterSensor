@@ -1,8 +1,8 @@
 #include "camera.h"
-#include "config.h"
 #include "ota.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include "config.h"
 
 size_t CHUNK_SIZE = 512;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
