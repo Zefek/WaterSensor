@@ -20,9 +20,12 @@ static void lockCameraSettings(sensor_t *s)
 
   s->set_contrast(s, 1);        // -2..2, zvýrazní tmavé číslice proti světlému ciferníku
 
-  // POZOR: NEsnižovat saturaci ani nezamykat AWB. Model watersensor.keras je
-  // natrénovaný na snímcích se zeleným nádechem a vybledlými oranžovými
-  // ručičkami – ten vzhled chceme zachovat, ne "vyčistit" do neutrální barvy.
+  // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
+  // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165, maska je
+  // nechytí → Fail). Vypnutím AWB zafixujeme barvu na "nekorigovaný" zelenavý
+  // výstup, na který je model i HSV maska (config.py HSV_LOWER/UPPER) laděná.
+  s->set_whitebal(s, 0);        // vypnout AWB algoritmus
+  s->set_awb_gain(s, 0);        // vypnout AWB gain
 }
 
 void printSensorValues(sensor_t *s) 
