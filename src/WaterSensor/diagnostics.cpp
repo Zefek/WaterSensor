@@ -82,7 +82,7 @@ static bool     s_cfgSent = false;
 static uint8_t  s_cfgSentHash = 0;
 static uint8_t  s_cfgHashCache = 0;
 
-static const char HEX[] = "0123456789abcdef";
+static const char HEXCHARS[] = "0123456789abcdef";
 
 static uint8_t crc8(const uint8_t* data, size_t len)
 {
@@ -167,8 +167,8 @@ bool diagPrevTransferHex(char* hexbuf, size_t buflen)
   const uint8_t* p = (const uint8_t*)&s_prev;
   for (size_t i = 0; i < sizeof(transfer_t); i++)
   {
-    hexbuf[i * 2]     = HEX[p[i] >> 4];
-    hexbuf[i * 2 + 1] = HEX[p[i] & 0x0F];
+    hexbuf[i * 2]     = HEXCHARS[p[i] >> 4];
+    hexbuf[i * 2 + 1] = HEXCHARS[p[i] & 0x0F];
   }
   hexbuf[sizeof(transfer_t) * 2] = '\0';
   return true;
@@ -184,8 +184,8 @@ void diagCorrelationHex(uint64_t corrId, char* hexbuf, size_t buflen)
   for (int i = 0; i < 8; i++)
   {
     uint8_t b = (uint8_t)(corrId >> (56 - i * 8));   // big-endian hex hodnoty
-    hexbuf[i * 2]     = HEX[b >> 4];
-    hexbuf[i * 2 + 1] = HEX[b & 0x0F];
+    hexbuf[i * 2]     = HEXCHARS[b >> 4];
+    hexbuf[i * 2 + 1] = HEXCHARS[b & 0x0F];
   }
   hexbuf[16] = '\0';
 }
