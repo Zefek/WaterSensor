@@ -8,7 +8,7 @@
 
 static void lockCameraSettings(sensor_t *s)
 {
-  s->set_sharpness(s, 1);
+  s->set_sharpness(s, 2);
 
   // Lesklý bílý ciferník pod bleskem auto-expozice přepaluje a ae_level to
   // neutáhne (aec_value zůstával ~168). Přejdeme na ruční expozici: krátký čas
@@ -18,7 +18,7 @@ static void lockCameraSettings(sensor_t *s)
   s->set_gain_ctrl(s, 0);       // vypnout AGC
   s->set_agc_gain(s, 0);        // minimální zisk
 
-  s->set_contrast(s, 0);        // -2..2, zvýrazní tmavé číslice proti světlému ciferníku
+  s->set_contrast(s, 2);        // -2..2, zvýrazní tmavé číslice proti světlému ciferníku
 
   // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
   // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165, maska je
