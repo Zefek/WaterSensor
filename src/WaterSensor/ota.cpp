@@ -42,26 +42,28 @@ static void doOTA()
   Serial.printf("OTA: kontrola z %s (aktualni verze %d)\n", OtaUrl, (int)FW_VERSION);
   WiFiClientSecure client;
   client.setCACert(RootCA);
-  httpUpdate.setAuthorization(OtaUser, OtaPassword);
 
-  httpUpdate.onStart([]() { Serial.println("OTA: start"); });
-  httpUpdate.onEnd([]() { Serial.println("OTA: hotovo"); });
-  httpUpdate.onProgress([](int cur, int total) {
+  HTTPUpdate updater(30000);
+  updater.setAuthorization(OtaUser, OtaPassword);
+
+  updater.onStart([]() { Serial.println("OTA: start"); });
+  updater.onEnd([]() { Serial.println("OTA: hotovo"); });
+  updater.onProgress([](int cur, int total) {
     Serial.printf("OTA: prubeh %d/%d B (%d%%)\r", cur, total,
                   total ? (cur * 100 / total) : 0);
   });
-  httpUpdate.onError([](int err)  { Serial.printf("\nOTA: chyba %d\n", err); });
+  updater.onError([](int err)  { Serial.printf("\nOTA: chyba %d\n", err); });
 
-  httpUpdate.rebootOnUpdate(true);
+  updater.rebootOnUpdate(true);
 
-  t_httpUpdate_return ret = httpUpdate.update(client, OtaUrl, String((int)FW_VERSION));
+  t_httpUpdate_return ret = updater.update(client, OtaUrl, String((int)FW_VERSION));
 
   switch (ret)
   {
     case HTTP_UPDATE_FAILED:
       Serial.printf("OTA: SELHALA (%d): %s\n",
-                    httpUpdate.getLastError(),
-                    httpUpdate.getLastErrorString().c_str());
+                    updater.getLastError(),
+                    updater.getLastErrorString().c_str());
       break;
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("OTA: zadna nova aktualizace (firmware je aktualni).");
