@@ -158,9 +158,23 @@ camera_fb_t* capture()
 
 void returnFb(camera_fb_t* fb)
 {
-  if (!fb) 
+  if (!fb)
   {
     return;
   }
   esp_camera_fb_return(fb);
+}
+
+void warmUp(uint8_t frames)
+{
+  for (uint8_t i = 0; i < frames; i++)
+  {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb)
+    {
+      esp_camera_fb_return(fb);
+    }
+    delay(200);
+  }
+  Serial.printf("Kamera: warm-up %u snimku hotovo.\n", frames);
 }

@@ -127,7 +127,7 @@ void captureAndSend()
       }
       uint32_t t_chunk_end = millis();
       uint32_t delta_ms = t_chunk_end - t_chunk_start;
-      float speed_kB_s = (wrote / 1024.0) / (delta_ms / 1000.0); // rychlost v kB/s
+      float speed_kB_s = (delta_ms > 0) ? (wrote / 1024.0f) / (delta_ms / 1000.0f) : 0.0f;
       Serial.printf("TryCount %d  Chunk [%u, %u] odesláno %u bajtů, doba: %u ms, rychlost: %.2f kB/s\n",
                     tryCount,
                     (unsigned int)sent,
@@ -145,8 +145,6 @@ void captureAndSend()
     {
       delay(DELAY_BETWEEN_CHUNKS_MS);
     }
-
-    // Úspěch potvrdíme až podle odpovědi serveru (2xx), ne jen podle sent==len.
     if (sent == len)
     {
       httpCode = readHttpStatus(client);
@@ -170,8 +168,10 @@ void captureAndSend()
   size_t freeHeap = ESP.getFreeHeap();
   rssi = WiFi.RSSI();
 
-  Serial.printf("Trycount=%d success=%d size=%u sent=%u dur=%u code=%d freeHeap=%u rssi=%d\n",
-        tryCount, success, (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, (unsigned)freeHeap, rssi);
+  float avg_kB_s = (duration > 0) ? (sent / 1024.0f) / (duration / 1000.0f) : 0.0f;
+
+  Serial.printf("Trycount=%d success=%d size=%u sent=%u dur=%u code=%d speed=%.2f kB/s freeHeap=%u rssi=%d\n",
+        tryCount, success, (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, avg_kB_s, (unsigned)freeHeap, rssi);
 }
 
 void connectToWifi()
@@ -198,6 +198,8 @@ void setup()
     delay(2000);
     ESP.restart();
   }
+
+  warmUp(3);
 
   lastCaptureTime = millis() - interval;
 }
