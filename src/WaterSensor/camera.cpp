@@ -14,13 +14,13 @@ static void lockCameraSettings(sensor_t *s)
   // neutáhne (aec_value zůstával ~168). Přejdeme na ruční expozici: krátký čas
   // + minimální zisk. Blesk svítí konzistentně, takže pevná expozice sedí.
   s->set_exposure_ctrl(s, 0);   // vypnout AEC (ruční režim)
-  s->set_aec_value(s, 200);      // 0..1200, vyšší = světlejší; lad v rozsahu ~50–120
+  s->set_aec_value(s, 200);     // 0..1200, vyšší = světlejší; lad k vzhledu ref. snímku
   s->set_gain_ctrl(s, 0);       // vypnout AGC
   s->set_agc_gain(s, 0);        // minimální zisk
 
-  // Silný zelený nádech (blesk + AWB) – snížením saturace ho utlumíme.
-  // Pro čtení číslic je barva nepodstatná, čitelnost je důležitější.
-  s->set_saturation(s, -2);     // -2..2
+  // POZOR: NEsnižovat saturaci ani nezamykat AWB. Model watersensor.keras je
+  // natrénovaný na snímcích se zeleným nádechem a vybledlými oranžovými
+  // ručičkami – ten vzhled chceme zachovat, ne "vyčistit" do neutrální barvy.
 }
 
 void printSensorValues(sensor_t *s) 
