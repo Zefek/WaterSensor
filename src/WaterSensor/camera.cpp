@@ -24,7 +24,7 @@ static void lockCameraSettings(sensor_t *s)
   s->set_gain_ctrl(s, 0);       // AGC manuál (pevný zisk → žádná oscilace)
   s->set_agc_gain(s, 1);        // zisk 0 = STABILNÍ konfig (digit4 med ~160, nikdy nepřepálí).
                                 // Vyšší nejde jemně: gain 1 už dává med ~215 (přepal).
-  s->set_brightness(s, -1);      // brightness na digit4 nefunguje
+  s->set_brightness(s, -2);      // brightness na digit4 nefunguje
   s->set_contrast(s, 0);        // baseline
 
   // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
