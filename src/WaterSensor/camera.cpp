@@ -22,8 +22,11 @@ static void lockCameraSettings(sensor_t *s)
   s->set_exposure_ctrl(s, 0);   // AEC manuál
   s->set_aec_value(s, 270);
   s->set_gain_ctrl(s, 0);       // AGC manuál (pevný zisk → žádná oscilace)
-  s->set_agc_gain(s, 4);        // pevný zisk; lad k med L ~172 (gain 0 dával ~160)
+  s->set_agc_gain(s, 0);        // zisk 0: víme med ~160, bez přepalu (vyšší je moc citlivé)
 
+  // Jemné zesvětlení k cíli (~172). Zisk je moc hrubý (0→160, 4→přepal),
+  // expozice skoro plochá -> brightness (DSP offset) je tu nejlepší jemný knob.
+  s->set_brightness(s, 1);      // -2..2; lad k med L ~172
   s->set_contrast(s, 0);        // baseline (zelený ref měl 0)
 
   // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
