@@ -6,33 +6,24 @@
 
 #define USE_LED_FLASH 1
 
+// Počet zahozených snímků na konvergenci AEC/AGC při AE-locku (viz capture()).
+static const uint8_t AE_CONVERGE_FRAMES = 10;
+static const uint16_t AE_CONVERGE_DELAY_MS = 100;
+
 static void lockCameraSettings(sensor_t *s)
 {
-  s->set_sharpness(s, 2);
-
-  // Krátká pevná expozice (bez blowoutu/motion blur) + AUTO zisk, který jas
-  // dorovná k tréninkovému (zelenému) vzhledu. Trénink vznikl na auto-zisku,
-  // takže tohle by mělo OOD spíš zmenšit. AWB zůstává zamčená (barva = gauge
-  // detekce). Empirické: ae_level a gainceiling lad podle reálných snímků
-  // (cíl: med L sedmičky ~172, soubor ~58 kB).
-  // Vše manuálně/pevně. AGC auto na téhle scéně OSCILUJE: kamera streamuje
-  // pořád, ale blesk svítí jen během snímku -> mezi snímky (tma) zisk vyletí,
-  // při snímku (blesk) přepálí, pak se stáhne... → kolísání světlé↔tmavé.
-  // Pevný zisk to zastaví. Stejný důvod jako u zamčené expozice a WB.
-  s->set_exposure_ctrl(s, 0);   // AEC manuál
-  s->set_aec_value(s, 270);
-  s->set_gain_ctrl(s, 0);       // AGC manuál (pevný zisk → žádná oscilace)
-  s->set_agc_gain(s, 1);        // zisk 0 = STABILNÍ konfig (digit4 med ~160, nikdy nepřepálí).
-                                // Vyšší nejde jemně: gain 1 už dává med ~215 (přepal).
-  s->set_brightness(s, -2);      // brightness na digit4 nefunguje
-  s->set_contrast(s, 0);        // baseline
-
-  // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
-  // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165, maska je
-  // nechytí → Fail). Vypnutím AWB zafixujeme barvu na "nekorigovaný" zelenavý
-  // výstup, na který je model i HSV maska (config.py HSV_LOWER/UPPER) laděná.
+  // Expozici a zisk NEnastavujeme natvrdo – řeší je capture() per-snímek přes
+  // AE-lock (auto zkonverguje na scénu s bleskem, pak se zmrazí), aby vzhled
+  // odpovídal "fresh-init auto" z tréninku, ale byl stabilní (bez oscilace).
+  // Tady jen pevná BARVA a tón:
+  //
+  // White balance MUSÍ být zamčená. Volná AWB přepíná ručičky mezi oranžovou
+  // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165 → Fail).
+  // WB je nezávislá na AEC/AGC, takže AE-lock se jí netýká.
   s->set_whitebal(s, 0);        // vypnout AWB algoritmus
   s->set_awb_gain(s, 0);        // vypnout AWB gain
+  s->set_brightness(s, 0);      // baseline
+  s->set_contrast(s, 0);        // baseline
 }
 
 void printSensorValues(sensor_t *s) 
@@ -163,9 +154,33 @@ bool initCamera()
 
 camera_fb_t* capture()
 {
+  sensor_t *s = esp_camera_sensor_get();
+
   #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOn();
   #endif
+
+  // AE-lock: zapni auto AEC+AGC, nech zkonvergovat na scénu S BLESKEM (zahozené
+  // snímky), pak auto vypni -> expoziční a GAIN registry zmrznou na zkonvergované
+  // hodnotě (ověřeno: set_exposure_ctrl/gain_ctrl(0) mění jen COM8 bity, registry
+  // nechá). Ostrý snímek se pak pořídí se stabilní, "scénou nastavenou" expozicí.
+  // WB se netýká – zůstává zamčená z lockCameraSettings.
+  if (s)
+  {
+    s->set_exposure_ctrl(s, 1);
+    s->set_gain_ctrl(s, 1);
+    for (uint8_t i = 0; i < AE_CONVERGE_FRAMES; i++)
+    {
+      camera_fb_t* tmp = esp_camera_fb_get();
+      if (tmp) esp_camera_fb_return(tmp);
+      delay(AE_CONVERGE_DELAY_MS);
+    }
+    s->set_exposure_ctrl(s, 0);   // zmrazit expozici
+    s->set_gain_ctrl(s, 0);       // zmrazit zisk
+    camera_fb_t* flush = esp_camera_fb_get();   // 1 snímek po zmrazení zahodit
+    if (flush) esp_camera_fb_return(flush);
+  }
+
   unsigned long t = micros();
   camera_fb_t* fb = esp_camera_fb_get();
   Serial.print("Time: ");
@@ -173,9 +188,8 @@ camera_fb_t* capture()
   #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOff();
   #endif
-  sensor_t *s = esp_camera_sensor_get();
   printSensorValues(s);
-  if (!fb) 
+  if (!fb)
   {
     Serial.println("capture() failed - no framebuffer");
   }
