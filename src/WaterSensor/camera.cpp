@@ -26,7 +26,7 @@ static void lockCameraSettings(sensor_t *s)
 
   // Jemné zesvětlení k cíli (~172). Zisk je moc hrubý (0→160, 4→přepal),
   // expozice skoro plochá -> brightness (DSP offset) je tu nejlepší jemný knob.
-  s->set_brightness(s, 1);      // -2..2; lad k med L ~172
+  s->set_brightness(s, 2);      // -2..2 (max); lad k med L ~172
   s->set_contrast(s, 0);        // baseline (zelený ref měl 0)
 
   // White balance MUSÍ být stabilní. Volná AWB přepíná ručičky mezi oranžovou
