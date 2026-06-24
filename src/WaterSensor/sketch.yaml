@@ -1,6 +1,6 @@
 profiles:
   WaterSensor_ESP32:
-    fqbn: esp32:esp32:esp32cam
+    fqbn: esp32:esp32:esp32cam:PartitionScheme=default
     platforms:
       - platform: esp32:esp32 (3.2.0)
         platform_index_url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json

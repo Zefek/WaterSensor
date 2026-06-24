@@ -9,3 +9,4 @@ bool initCamera();
 bool deInit();
 camera_fb_t* capture();
 void returnFb(camera_fb_t* fb);
+void warmUp(uint8_t frames = 3);
