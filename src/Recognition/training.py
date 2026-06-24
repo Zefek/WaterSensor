@@ -44,10 +44,16 @@ test_ds_raw = tf.keras.utils.image_dataset_from_directory(
 print(f"Class names: {train_ds_raw.class_names}")
 
 normalize = layers.Rescaling(1.0 / 255)
+# Augmentace běží PO normalize (hodnoty v [0,1]). RandomBrightness/Contrast jsou
+# tu kvůli odolnosti vůči driftu jasu/tónu kamery: digit4 (pravá číslice) kolísá
+# jasem podle nasvícení (viděli jsme med L ~141–215) a model na to byl citlivý.
+# Tímto se naučí číst číslici napříč jasem, takže pár úrovní sem/tam ho nerozhodí.
 augment = tf.keras.Sequential([
     layers.RandomTranslation(
         height_factor=0.15, width_factor=0.0, fill_mode="nearest", seed=SEED
     ),
+    layers.RandomBrightness(factor=0.25, value_range=(0.0, 1.0), seed=SEED),
+    layers.RandomContrast(factor=0.2, seed=SEED),
 ])
 
 
