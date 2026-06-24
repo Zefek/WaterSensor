@@ -1,4 +1,5 @@
 #include "ota.h"
+#include "diagnostics.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
@@ -64,6 +65,7 @@ static void doOTA()
       Serial.printf("OTA: SELHALA (%d): %s\n",
                     updater.getLastError(),
                     updater.getLastErrorString().c_str());
+      diagCountOtaFailure();
       break;
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("OTA: zadna nova aktualizace (firmware je aktualni).");

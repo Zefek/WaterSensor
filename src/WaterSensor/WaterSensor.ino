@@ -1,5 +1,6 @@
 #include "camera.h"
 #include "ota.h"
+#include "diagnostics.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
@@ -45,15 +46,48 @@ int readHttpStatus(WiFiClient& client)
   return -1;
 }
 
+bool postBinary(const char* path, const uint8_t* data, size_t len)
+{
+  WiFiClientSecure client;
+  client.setCACert(RootCA);
+  client.setNoDelay(true);
+  client.setTimeout(CLIENT_TIMEOUT_S * 1000);
+  if (!client.connect(Server, Port))
+  {
+    client.stop();
+    return false;
+  }
+  client.printf("POST %s HTTP/1.0\r\n", path);
+  client.printf("Host: %s\r\n", Server);
+  client.println("User-Agent: ESP32-CAM-Watermeter/1.0");
+  client.println("Content-Type: application/octet-stream");
+  client.printf("Content-Length: %u\r\n", (unsigned)len);
+  client.printf("Authorization: %s\r\n", auth);
+  client.println("Connection: close\r\n");
+
+  size_t sent = 0;
+  while (sent < len && client.connected())
+  {
+    size_t w = client.write(data + sent, len - sent);
+    if (w == 0) break;
+    sent += w;
+  }
+  int code = readHttpStatus(client);
+  client.stop();
+  return code >= 200 && code < 300;
+}
+
 void captureAndSend()
 {
   camera_fb_t* fb = capture();
 
-  if (!fb) 
+  if (!fb)
   {
     Serial.println("Chyba při pořizování obrázku");
+    diagCountCameraError();
     return;
   }
+  diagCountCapture();
   size_t len = fb->len;
   Serial.printf("Pořízen obrázek (%d B)\n", len);
   int rssi = WiFi.RSSI();
@@ -68,6 +102,13 @@ void captureAndSend()
   client.setCACert(RootCA);
   Serial.printf("Pred TLS (kamera aktivni): freeHeap=%u maxAlloc=%u\n",
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+
+  uint64_t corrId = diagNextCorrelationId();
+  char corrHex[DIAG_CORR_HEX_BUF];
+  diagCorrelationHex(corrId, corrHex, sizeof(corrHex));
+  char prevHex[DIAG_TRANSFER_HEX_BUF];
+  bool hasPrev = diagPrevTransferHex(prevHex, sizeof(prevHex));
+
   do
   {
     client.stop();
@@ -88,6 +129,7 @@ void captureAndSend()
                     (unsigned)ESP.getFreeHeap(),
                     (unsigned)ESP.getMaxAllocHeap(),
                     (long)time(nullptr));
+      diagCountTlsError();
       tryCount++;
       continue;
     }
@@ -97,6 +139,11 @@ void captureAndSend()
     client.println("Content-Type: application/octet-stream");
     client.printf("Content-Length: %u\r\n", (unsigned)len);
     client.printf("Authorization: %s\r\n", auth);
+    client.printf("X-Correlation-Id: %s\r\n", corrHex);
+    if (hasPrev)
+    {
+      client.printf("X-Transfer: %s\r\n", prevHex);
+    }
     client.println("Connection: close\r\n");
 
     sent = 0;
@@ -172,6 +219,11 @@ void captureAndSend()
 
   Serial.printf("Trycount=%d success=%d size=%u sent=%u dur=%u code=%d speed=%.2f kB/s freeHeap=%u rssi=%d\n",
         tryCount, success, (unsigned)len, (unsigned)sent, (unsigned)duration, httpCode, avg_kB_s, (unsigned)freeHeap, rssi);
+
+  if (!success) diagCountSendFailure();
+
+  diagRecordTransfer(corrId, (uint32_t)len, (uint32_t)sent, duration,
+                     (uint8_t)tryCount, success, (int16_t)httpCode, (int8_t)rssi);
 }
 
 void connectToWifi()
@@ -184,6 +236,7 @@ void connectToWifi()
     Serial.print(".");
   }
   Serial.println("\nWi-Fi připojeno");
+  diagCountWifiReconnect();   // počítá každé (re)připojení vč. prvního
   otaBegin();
 }
 
@@ -204,14 +257,37 @@ void setup()
   lastCaptureTime = millis() - interval;
 }
 
-void loop() 
+void loop()
 {
+  uint32_t loopStart = millis();
+
   if(WiFi.status() != WL_CONNECTED)
   {
     connectToWifi();
   }
   if(WiFi.status() == WL_CONNECTED)
   {
+    static uint32_t lastCfgAttempt = 0;
+    if (diagConfigChanged() && (lastCfgAttempt == 0 || millis() - lastCfgAttempt >= 30000UL))
+    {
+      lastCfgAttempt = millis();
+      uint8_t cfgBuf[32];
+      size_t n = diagBuildConfigBlob(cfgBuf, sizeof(cfgBuf));
+      if (n && postBinary(endpointConfig, cfgBuf, n))
+      {
+        diagMarkConfigSent();
+      }
+    }
+
+    static uint32_t lastDiag = 0;
+    if (lastDiag == 0 || millis() - lastDiag >= DIAG_INTERVAL_MS)
+    {
+      lastDiag = millis();
+      uint8_t diagBuf[40];
+      size_t n = diagBuildDeviceBlob(diagBuf, sizeof(diagBuf));
+      if (n) postBinary(endpointDiag, diagBuf, n);
+    }
+
     if (millis() - lastCaptureTime >= interval)
     {
       Serial.println("Pořizuji snímek a odesílám...");
@@ -220,5 +296,7 @@ void loop()
     }
     otaLoop();
   }
+
+  diagNoteLoopMs(millis() - loopStart);
   delay(1000);
 }
