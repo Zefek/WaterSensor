@@ -4,9 +4,17 @@
 #include "esp_camera.h"
 #include "esp_psram.h"
 
+#define USE_LED_FLASH 1
+
+static const uint8_t AE_CONVERGE_FRAMES = 10;
+static const uint16_t AE_CONVERGE_DELAY_MS = 100;
+
 static void lockCameraSettings(sensor_t *s)
 {
-  s->set_sharpness(s, 1);
+  s->set_whitebal(s, 0);
+  s->set_awb_gain(s, 0);
+  s->set_brightness(s, 0);
+  s->set_contrast(s, 0);
 }
 
 void printSensorValues(sensor_t *s) 
@@ -103,8 +111,8 @@ bool initCamera()
   config.frame_size = FRAMESIZE_SVGA;
   config.pixel_format = PIXFORMAT_JPEG;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.fb_count = 1;
-  config.jpeg_quality = 5;
+  config.fb_count = 2;
+  config.jpeg_quality = 4;
   config.grab_mode = CAMERA_GRAB_LATEST;
 
   if (psramFound())
@@ -137,19 +145,37 @@ bool initCamera()
 
 camera_fb_t* capture()
 {
-  #if defined(LED_GPIO_NUM)
+  sensor_t *s = esp_camera_sensor_get();
+
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOn();
   #endif
+
+  if (s)
+  {
+    s->set_exposure_ctrl(s, 1);
+    s->set_gain_ctrl(s, 1);
+    for (uint8_t i = 0; i < AE_CONVERGE_FRAMES; i++)
+    {
+      camera_fb_t* tmp = esp_camera_fb_get();
+      if (tmp) esp_camera_fb_return(tmp);
+      delay(AE_CONVERGE_DELAY_MS);
+    }
+    s->set_exposure_ctrl(s, 0);
+    s->set_gain_ctrl(s, 0);
+    camera_fb_t* flush = esp_camera_fb_get();
+    if (flush) esp_camera_fb_return(flush);
+  }
+
   unsigned long t = micros();
   camera_fb_t* fb = esp_camera_fb_get();
   Serial.print("Time: ");
   Serial.println(micros() - t);
-  #if defined(LED_GPIO_NUM)
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOff();
   #endif
-  sensor_t *s = esp_camera_sensor_get();
   printSensorValues(s);
-  if (!fb) 
+  if (!fb)
   {
     Serial.println("capture() failed - no framebuffer");
   }
@@ -158,9 +184,23 @@ camera_fb_t* capture()
 
 void returnFb(camera_fb_t* fb)
 {
-  if (!fb) 
+  if (!fb)
   {
     return;
   }
   esp_camera_fb_return(fb);
+}
+
+void warmUp(uint8_t frames)
+{
+  for (uint8_t i = 0; i < frames; i++)
+  {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb)
+    {
+      esp_camera_fb_return(fb);
+    }
+    delay(200);
+  }
+  Serial.printf("Kamera: warm-up %u snimku hotovo.\n", frames);
 }

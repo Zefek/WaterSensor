@@ -4,3 +4,12 @@
 #define endpoint "endpoint"
 #define Port 0
 #define auth "auth"
+#define endpointDiag   "endpoint"
+#define endpointConfig "endpoint"
+#define OtaUrl      "OtaUrl"
+#define OtaUser     "OtaUser"
+#define OtaPassword "OtaPassword"
+#define RootCA R"EOF(
+-----BEGIN CERTIFICATE-----
+-----END CERTIFICATE-----
+)EOF"

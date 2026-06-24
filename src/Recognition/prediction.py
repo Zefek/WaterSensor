@@ -56,6 +56,7 @@ def preprocess_image(image_path):
 
     img = Image.open(os.path.join(imageFolder, image_path))
     confidences = []
+    digit_probs = []   # per pozici plný softmax (10 prstů) – pro přepočet confidence po opravě heuristikou
     for (x, y, w, h) in coords:
         # Výřez
         cropped = img.crop((x, y, x + w, y + h)).convert("L")
@@ -75,12 +76,19 @@ def preprocess_image(image_path):
         results.append(class_names[sorted_indices[0]])
         print("Predikce:", class_names[sorted_indices[0]])
         confidences.append(pred[sorted_indices[0]])
+        digit_probs.append([round(float(p), 4) for p in pred])
 
     pocitadlo = "".join(results)
     values["value"] = pocitadlo
     # Geometrický průměr (přes exp(mean(log)) kvůli numerické stabilitě) –
     # vyjadřuje důvěru v celý odečet, penalizuje i jednu nejistou číslici.
-    values["confidence"] = round(float(np.exp(np.mean(np.log(confidences)))), 4)
+    # POZOR: tohle je confidence SUROVÉ CNN predikce (argmax číslic). Když stav
+    # opraví downstream heuristika, tahle hodnota patří k PŮVODNÍ (často chybné)
+    # predikci a důvěru NADHODNOCUJE. Skutečnou confidence reportované hodnoty
+    # dopočítej downstream z digit_probs[pozice][opravená_číslice].
+    values["cnn_confidence"] = round(float(np.exp(np.mean(np.log(confidences)))), 4)
+    values["confidence"] = values["cnn_confidence"]   # zpětná kompatibilita; přepočítej po opravě
+    values["digit_probs"] = digit_probs               # 5×10 softmax pro přepočet confidence
     print("Výsledek:", pocitadlo)
     counter = 0
     error = False
@@ -168,10 +176,12 @@ def callback(ch, method, properties, body):
     print("Přijato:", body.decode())
     body_str = body.decode('utf-8')
     data = json.loads(body_str)
+    corrId = data.get("CorrelationId")
     fileExists = wait_for_file(data["FileName"])
     if fileExists:
         result = preprocess_image(data["FileName"])
         result["gaugeId"] = data["GaugeId"]
+        result["correlationId"] = corrId
         message = json.dumps(result)
         if result["result"] == "OK":
             d4 = int(math.floor(result["value_3"]))
@@ -191,6 +201,7 @@ def callback(ch, method, properties, body):
         notFound = {
             "file": data["FileName"],
             "gaugeId": data["GaugeId"],
+            "correlationId": corrId,
             "result": "Fail",
             "value": "",
             "value_0": -1,
