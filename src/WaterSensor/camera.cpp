@@ -6,24 +6,15 @@
 
 #define USE_LED_FLASH 1
 
-// Počet zahozených snímků na konvergenci AEC/AGC při AE-locku (viz capture()).
 static const uint8_t AE_CONVERGE_FRAMES = 10;
 static const uint16_t AE_CONVERGE_DELAY_MS = 100;
 
 static void lockCameraSettings(sensor_t *s)
 {
-  // Expozici a zisk NEnastavujeme natvrdo – řeší je capture() per-snímek přes
-  // AE-lock (auto zkonverguje na scénu s bleskem, pak se zmrazí), aby vzhled
-  // odpovídal "fresh-init auto" z tréninku, ale byl stabilní (bez oscilace).
-  // Tady jen pevná BARVA a tón:
-  //
-  // White balance MUSÍ být zamčená. Volná AWB přepíná ručičky mezi oranžovou
-  // (OpenCV H~25, detekce v prediction.py OK) a purpurovou (H~165 → Fail).
-  // WB je nezávislá na AEC/AGC, takže AE-lock se jí netýká.
-  s->set_whitebal(s, 0);        // vypnout AWB algoritmus
-  s->set_awb_gain(s, 0);        // vypnout AWB gain
-  s->set_brightness(s, 0);      // baseline
-  s->set_contrast(s, 0);        // baseline
+  s->set_whitebal(s, 0);
+  s->set_awb_gain(s, 0);
+  s->set_brightness(s, 0);
+  s->set_contrast(s, 0);
 }
 
 void printSensorValues(sensor_t *s) 
@@ -160,11 +151,6 @@ camera_fb_t* capture()
     ledFlashOn();
   #endif
 
-  // AE-lock: zapni auto AEC+AGC, nech zkonvergovat na scénu S BLESKEM (zahozené
-  // snímky), pak auto vypni -> expoziční a GAIN registry zmrznou na zkonvergované
-  // hodnotě (ověřeno: set_exposure_ctrl/gain_ctrl(0) mění jen COM8 bity, registry
-  // nechá). Ostrý snímek se pak pořídí se stabilní, "scénou nastavenou" expozicí.
-  // WB se netýká – zůstává zamčená z lockCameraSettings.
   if (s)
   {
     s->set_exposure_ctrl(s, 1);
@@ -175,9 +161,9 @@ camera_fb_t* capture()
       if (tmp) esp_camera_fb_return(tmp);
       delay(AE_CONVERGE_DELAY_MS);
     }
-    s->set_exposure_ctrl(s, 0);   // zmrazit expozici
-    s->set_gain_ctrl(s, 0);       // zmrazit zisk
-    camera_fb_t* flush = esp_camera_fb_get();   // 1 snímek po zmrazení zahodit
+    s->set_exposure_ctrl(s, 0);
+    s->set_gain_ctrl(s, 0);
+    camera_fb_t* flush = esp_camera_fb_get();
     if (flush) esp_camera_fb_return(flush);
   }
 

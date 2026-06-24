@@ -236,7 +236,7 @@ void connectToWifi()
     Serial.print(".");
   }
   Serial.println("\nWi-Fi připojeno");
-  diagCountWifiReconnect();   // počítá každé (re)připojení vč. prvního
+  diagCountWifiReconnect();
   otaBegin();
 }
 
