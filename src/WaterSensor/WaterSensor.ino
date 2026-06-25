@@ -6,7 +6,7 @@
 #include <time.h>
 #include "config.h"
 
-size_t CHUNK_SIZE = 512;
+size_t CHUNK_SIZE = 1460;
 const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
 const uint16_t CLIENT_TIMEOUT_S = 30;
 const int BASE_DELAY_MS = 1000;
@@ -154,43 +154,19 @@ void captureAndSend()
     while (sent < len && client.connected())
     {
       size_t chunk = (len - sent) > CHUNK_SIZE ? CHUNK_SIZE : (len - sent);
-      uint32_t t_chunk_start = millis();
       size_t wrote = client.write(fb->buf + sent, chunk);
       if (wrote == 0)
       {
-        if(millis() - tStart > 5000)
+        if (millis() - tStart > 5000)
         {
           client.stop();
           break;
         }
-        if (DELAY_BETWEEN_CHUNKS_MS)
-        {
-          delay(DELAY_BETWEEN_CHUNKS_MS);
-        }
-      }
-      else
-      {
-        tStart = millis();
-      }
-      uint32_t t_chunk_end = millis();
-      uint32_t delta_ms = t_chunk_end - t_chunk_start;
-      float speed_kB_s = (delta_ms > 0) ? (wrote / 1024.0f) / (delta_ms / 1000.0f) : 0.0f;
-      Serial.printf("TryCount %d  Chunk [%u, %u] odesláno %u bajtů, doba: %u ms, rychlost: %.2f kB/s\n",
-                    tryCount,
-                    (unsigned int)sent,
-                    (unsigned int)chunk,
-                    (unsigned int)wrote,
-                   (unsigned int)delta_ms,
-                   speed_kB_s);
-      sent += wrote;
-      if (DELAY_BETWEEN_CHUNKS_MS)
-      {
         delay(DELAY_BETWEEN_CHUNKS_MS);
+        continue;
       }
-    }
-    if (DELAY_BETWEEN_CHUNKS_MS)
-    {
-      delay(DELAY_BETWEEN_CHUNKS_MS);
+      sent += wrote;
+      tStart = millis();
     }
     if (sent == len)
     {
