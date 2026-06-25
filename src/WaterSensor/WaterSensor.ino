@@ -108,9 +108,11 @@ void captureAndSend()
   diagCorrelationHex(corrId, corrHex, sizeof(corrHex));
   char prevHex[DIAG_TRANSFER_HEX_BUF];
   bool hasPrev = diagPrevTransferHex(prevHex, sizeof(prevHex));
-
+  uint32_t duration = 0;
   do
   {
+    duration = 0;
+    sent = 0;
     client.stop();
     client.setNoDelay(true);
     client.setTimeout(CLIENT_TIMEOUT_S * 1000);
@@ -145,9 +147,7 @@ void captureAndSend()
       client.printf("X-Transfer: %s\r\n", prevHex);
     }
     client.println("Connection: close\r\n");
-
-    sent = 0;
-
+    
     t0 = millis();
     uint32_t tStart = millis();
 
@@ -168,6 +168,7 @@ void captureAndSend()
       sent += wrote;
       tStart = millis();
     }
+    duration = millis() - t0;
     if (sent == len)
     {
       httpCode = readHttpStatus(client);
@@ -180,13 +181,11 @@ void captureAndSend()
         Serial.printf("Server odpověděl chybou %d, retry...\n", httpCode);
       }
     }
-
     tryCount++;
   }
   while(!success && tryCount < MAX_RETRIES);
   returnFb(fb);
   client.stop();
-  uint32_t duration = millis() - t0;
 
   size_t freeHeap = ESP.getFreeHeap();
   rssi = WiFi.RSSI();
