@@ -77,3 +77,10 @@ jobs:
             New-Item -ItemType Directory -Path $env:TARGET_PATH -Force | Out-Null
           }
           Copy-Item -Path "$env:GITHUB_WORKSPACE\src\Recognition\*" -Destination $env:TARGET_PATH -Recurse -Force
+
+      - name: Restart služby
+        if: always()
+        shell: powershell
+        run: |
+          Start-Service -Name $env:SERVICE_NAME
+          (Get-Service -Name $env:SERVICE_NAME).WaitForStatus('Running', '00:01:00')

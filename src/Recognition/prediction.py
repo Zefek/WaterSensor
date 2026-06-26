@@ -131,19 +131,21 @@ def preprocess_image(image_path):
     return values
 
 def get_value(value: float, previous_value: float) -> int:
+    # Ručička má fyzicky stát na pozici (číslice + nižší_řád/10). Vlivem geometrie a
+    # úhlu kamery ale může číst posunutě i o ~0.4, takže pevný práh přechod přes nulu
+    # spolehlivě nepodchytí. Místo toho vybereme z kandidátů f-1, f, f+1 tu číslici,
+    # jejíž očekávaná poloha (číslice + previous_value/10) nejlíp sedí na naměřený úhel.
     f = math.floor(value)
     d = value - f
-    print(f"f: {f}, d: {d}, previous: {previous_value}")
-    if d < 0.35 and previous_value >= 7:
-        if int(f) - 1 < 0:
-            return 9
-        return int(f) - 1
-    if d> 0.86 and previous_value < 4:
-        if int(f) + 1 > 9:
-            return 0
-        return int(f) + 1
-
-    return int(f)
+    expected = previous_value / 10.0
+    print(f"f: {f}, d: {d}, previous: {previous_value}, expected: {expected}")
+    candidates = [
+        (abs(d - expected),     f),       # ručička sedí na své číslici
+        (abs(d - expected - 1), f + 1),   # ručička zaostává → už přetočila
+        (abs(d - expected + 1), f - 1),   # ručička předbíhá → ještě nepřetočila
+    ]
+    candidates.sort(key=lambda c: c[0])
+    return candidates[0][1] % 10
 
 # Připojení k RabbitMQ serveru
 connection = pika.BlockingConnection(
