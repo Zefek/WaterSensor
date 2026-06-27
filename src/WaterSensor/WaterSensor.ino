@@ -203,6 +203,7 @@ void captureAndSend()
 
 void connectToWifi()
 {
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WifiSSID, WifiPassword);
   Serial.print("Připojuji se na Wi-Fi");
   while (WiFi.status() != WL_CONNECTED)
@@ -210,6 +211,7 @@ void connectToWifi()
     delay(500);
     Serial.print(".");
   }
+  WiFi.setSleep(false);
   Serial.println("\nWi-Fi připojeno");
   diagCountWifiReconnect();
   otaBegin();
