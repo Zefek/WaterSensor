@@ -6,9 +6,9 @@
 #include <time.h>
 #include "config.h"
 
-size_t CHUNK_SIZE = 1460;
-const uint16_t DELAY_BETWEEN_CHUNKS_MS = 20;
+const size_t CHUNK_SIZE = 1400;
 const uint16_t CLIENT_TIMEOUT_S = 30;
+const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 const int BASE_DELAY_MS = 1000;
 const int MAX_RETRIES = 5;
 
@@ -51,7 +51,7 @@ bool postBinary(const char* path, const uint8_t* data, size_t len)
   WiFiClientSecure client;
   client.setCACert(RootCA);
   client.setNoDelay(true);
-  client.setTimeout(CLIENT_TIMEOUT_S * 1000);
+  client.setConnectionTimeout(CLIENT_TIMEOUT_S * 1000);
   if (!client.connect(Server, Port))
   {
     client.stop();
@@ -115,7 +115,7 @@ void captureAndSend()
     sent = 0;
     client.stop();
     client.setNoDelay(true);
-    client.setTimeout(CLIENT_TIMEOUT_S * 1000);
+    client.setConnectionTimeout(CLIENT_TIMEOUT_S * 1000);
 
     if(tryCount > 0)
     {
@@ -149,7 +149,6 @@ void captureAndSend()
     client.println("Connection: close\r\n");
     
     t0 = millis();
-    uint32_t tStart = millis();
 
     while (sent < len && client.connected())
     {
@@ -157,16 +156,10 @@ void captureAndSend()
       size_t wrote = client.write(fb->buf + sent, chunk);
       if (wrote == 0)
       {
-        if (millis() - tStart > 5000)
-        {
-          client.stop();
-          break;
-        }
-        delay(DELAY_BETWEEN_CHUNKS_MS);
-        continue;
+        client.stop();
+        break;
       }
       sent += wrote;
-      tStart = millis();
     }
     duration = millis() - t0;
     if (sent == len)
@@ -203,13 +196,21 @@ void captureAndSend()
 
 void connectToWifi()
 {
+  WiFi.mode(WIFI_STA);
   WiFi.begin(WifiSSID, WifiPassword);
   Serial.print("Připojuji se na Wi-Fi");
+  uint32_t startAttempt = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
     Serial.print(".");
+    if (millis() - startAttempt > WIFI_CONNECT_TIMEOUT_MS)
+    {
+      Serial.println("\nWi-Fi se nepodařilo připojit v limitu, restartuji...");
+      ESP.restart();
+    }
   }
+  WiFi.setSleep(false);
   Serial.println("\nWi-Fi připojeno");
   diagCountWifiReconnect();
   otaBegin();
