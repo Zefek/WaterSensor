@@ -12,6 +12,9 @@ const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 const int BASE_DELAY_MS = 1000;
 const int MAX_RETRIES = 5;
 
+// Po kolika chybách kamery po sobě zařízení restartovat (1 = restart hned)
+const uint8_t MAX_CAMERA_ERRORS = 3;
+
 //Interval snímání (1 minut)
 const unsigned long interval = 1 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
@@ -79,14 +82,23 @@ bool postBinary(const char* path, const uint8_t* data, size_t len)
 
 void captureAndSend()
 {
+  static uint8_t consecutiveCameraErrors = 0;
+
   camera_fb_t* fb = capture();
 
   if (!fb)
   {
     Serial.println("Chyba při pořizování obrázku");
     diagCountCameraError();
+    if (++consecutiveCameraErrors >= MAX_CAMERA_ERRORS)
+    {
+      Serial.printf("Kamera selhala %dx po sobě, restartuji...\n", consecutiveCameraErrors);
+      delay(2000);
+      ESP.restart();
+    }
     return;
   }
+  consecutiveCameraErrors = 0;
   diagCountCapture();
   size_t len = fb->len;
   Serial.printf("Pořízen obrázek (%d B)\n", len);
