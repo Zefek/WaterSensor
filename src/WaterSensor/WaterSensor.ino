@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 
 const size_t CHUNK_SIZE = 1400;
@@ -11,9 +12,8 @@ const uint16_t CLIENT_TIMEOUT_S = 30;
 const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 const int BASE_DELAY_MS = 1000;
 const int MAX_RETRIES = 5;
-
-// Po kolika chybách kamery po sobě zařízení restartovat (1 = restart hned)
 const uint8_t MAX_CAMERA_ERRORS = 3;
+const uint32_t WDT_TIMEOUT_S = 90;
 
 //Interval snímání (1 minut)
 const unsigned long interval = 1 * 60 * 1000;
@@ -44,6 +44,7 @@ int readHttpStatus(WiFiClient& client)
         }
       }
     }
+    esp_task_wdt_reset();
     delay(5);
   }
   return -1;
@@ -123,6 +124,7 @@ void captureAndSend()
   uint32_t duration = 0;
   do
   {
+    esp_task_wdt_reset();
     duration = 0;
     sent = 0;
     client.stop();
@@ -172,6 +174,7 @@ void captureAndSend()
         break;
       }
       sent += wrote;
+      esp_task_wdt_reset();
     }
     duration = millis() - t0;
     if (sent == len)
@@ -214,6 +217,7 @@ void connectToWifi()
   uint32_t startAttempt = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
+    esp_task_wdt_reset();
     delay(500);
     Serial.print(".");
     if (millis() - startAttempt > WIFI_CONNECT_TIMEOUT_MS)
@@ -232,6 +236,16 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
+  esp_task_wdt_config_t wdtCfg = {
+    .timeout_ms = WDT_TIMEOUT_S * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = true,
+  };
+  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE)
+  {
+    esp_task_wdt_reconfigure(&wdtCfg);
+  }
+  esp_task_wdt_add(NULL);
 
   if (!initCamera())
   {
@@ -248,6 +262,7 @@ void setup()
 void loop()
 {
   uint32_t loopStart = millis();
+  esp_task_wdt_reset();
 
   if(WiFi.status() != WL_CONNECTED)
   {

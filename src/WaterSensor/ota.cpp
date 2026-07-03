@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 
 #ifndef OTA_NTP_SERVER
@@ -30,6 +31,7 @@ static bool syncTime()
       Serial.println(" timeout (cert se nemusi overit).");
       return false;
     }
+    esp_task_wdt_reset();
     delay(250);
     Serial.print(".");
     time(&now);
@@ -47,9 +49,10 @@ static void doOTA()
   HTTPUpdate updater(30000);
   updater.setAuthorization(OtaUser, OtaPassword);
 
-  updater.onStart([]() { Serial.println("OTA: start"); });
-  updater.onEnd([]() { Serial.println("OTA: hotovo"); });
+  updater.onStart([]() { esp_task_wdt_reset(); Serial.println("OTA: start"); });
+  updater.onEnd([]() { esp_task_wdt_reset(); Serial.println("OTA: hotovo"); });
   updater.onProgress([](int cur, int total) {
+    esp_task_wdt_reset();
     Serial.printf("OTA: prubeh %d/%d B (%d%%)\r", cur, total,
                   total ? (cur * 100 / total) : 0);
   });
