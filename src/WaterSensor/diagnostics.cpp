@@ -231,6 +231,7 @@ size_t diagBuildDeviceBlob(uint8_t* buf, size_t buflen)
   d.tls_errors       = s_tlsErrors;
   d.ota_failures     = s_otaFailures;
   d.loop_max_ms      = s_loopMaxMs;
+  s_loopMaxMs        = 0;
   d.camera_errors    = (uint8_t)(s_cameraErrors > 255 ? 255 : s_cameraErrors);
   d.reset_reason     = (uint8_t)esp_reset_reason();
   d.rssi             = (int8_t)WiFi.RSSI();
