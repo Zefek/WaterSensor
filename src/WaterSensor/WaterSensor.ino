@@ -18,6 +18,7 @@ const uint32_t WDT_TIMEOUT_S = 90;
 //Interval snímání (1 minut)
 const unsigned long interval = 1 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
+uint8_t consecutiveCameraErrors = 0;
 
 int readHttpStatus(WiFiClient& client) 
 {
@@ -83,8 +84,6 @@ bool postBinary(const char* path, const uint8_t* data, size_t len)
 
 void captureAndSend()
 {
-  static uint8_t consecutiveCameraErrors = 0;
-
   camera_fb_t* fb = capture();
 
   if (!fb)
@@ -93,9 +92,19 @@ void captureAndSend()
     diagCountCameraError();
     if (++consecutiveCameraErrors >= MAX_CAMERA_ERRORS)
     {
-      Serial.printf("Kamera selhala %dx po sobě, restartuji...\n", consecutiveCameraErrors);
-      delay(2000);
-      ESP.restart();
+      Serial.printf("Kamera selhala %dx po sobě, reinicializuji senzor (bez restartu)...\n",
+                    consecutiveCameraErrors);
+      deInit();
+      if (initCamera())
+      {
+        warmUp(3);
+        Serial.println("Kamera reinicializována.");
+      }
+      else
+      {
+        Serial.println("Reinicializace kamery se nezdařila, zkusím to znovu později.");
+      }
+      consecutiveCameraErrors = 0;
     }
     return;
   }
@@ -237,24 +246,33 @@ void setup()
   Serial.begin(115200);
   delay(1000);
   esp_task_wdt_config_t wdtCfg = {
-    .timeout_ms = WDT_TIMEOUT_S * 1000,
-    .idle_core_mask = 0,
-    .trigger_panic = true,
+     .timeout_ms = WDT_TIMEOUT_S * 1000,
+     .idle_core_mask = 0,
+     .trigger_panic = true,
   };
   if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE)
   {
     esp_task_wdt_reconfigure(&wdtCfg);
   }
-  esp_task_wdt_add(NULL);
+   esp_task_wdt_add(NULL);
 
-  if (!initCamera())
+  bool camReady = initCamera();
+  for (uint8_t attempt = 1; !camReady && attempt <= MAX_CAMERA_ERRORS; attempt++)
   {
-    Serial.println("Kamera se nepodařila inicializovat, restartuji...");
-    delay(2000);
-    ESP.restart();
+    Serial.printf("Kamera se nepodařila inicializovat (pokus %d), reinicializuji senzor...\n", attempt);
+    deInit();
+    delay(500);
+    camReady = initCamera();
   }
 
-  warmUp(3);
+  if (camReady)
+  {
+    warmUp(3);
+  }
+  else
+  {
+    Serial.println("Kamera se nenahodila ani po opakování, pokračuji bez ní (diagnostika poběží).");
+  }
 
   lastCaptureTime = millis() - interval;
 }

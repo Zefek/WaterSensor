@@ -6,10 +6,10 @@
 
 #define USE_LED_FLASH 1
 
-static const uint8_t AE_CONVERGE_FRAMES = 10;
-static const uint16_t AE_CONVERGE_DELAY_MS = 100;
+const uint8_t AE_CONVERGE_FRAMES = 10;
+const uint16_t AE_CONVERGE_DELAY_MS = 100;
 
-static void lockCameraSettings(sensor_t *s)
+void lockCameraSettings(sensor_t *s)
 {
   s->set_whitebal(s, 0);
   s->set_awb_gain(s, 0);
@@ -88,7 +88,7 @@ bool initCamera()
   digitalWrite(PWDN_GPIO_NUM, LOW);
   delay(200);
 
-  camera_config_t config;
+  camera_config_t config = {};
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -139,8 +139,44 @@ bool initCamera()
     setupLedFlash();
   #endif
 
+  calibrateExposure();
+
   Serial.println("Kamera inicializována.");
   return true;
+}
+
+void calibrateExposure()
+{
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s)
+  {
+    return;
+  }
+
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
+    ledFlashOn();
+  #endif
+
+  s->set_exposure_ctrl(s, 1);
+  s->set_gain_ctrl(s, 1);
+  for (uint8_t i = 0; i < AE_CONVERGE_FRAMES; i++)
+  {
+    camera_fb_t* tmp = esp_camera_fb_get();
+    if (tmp) esp_camera_fb_return(tmp);
+    delay(AE_CONVERGE_DELAY_MS);
+  }
+  s->set_exposure_ctrl(s, 0);
+  s->set_gain_ctrl(s, 0);
+
+  camera_fb_t* flush = esp_camera_fb_get();
+  if (flush) esp_camera_fb_return(flush);
+
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
+    ledFlashOff();
+  #endif
+
+  Serial.printf("Kamera: expozice zafixována (aec_value=%u agc_gain=%u).\n",
+                (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
 }
 
 camera_fb_t* capture()
@@ -151,20 +187,10 @@ camera_fb_t* capture()
     ledFlashOn();
   #endif
 
-  if (s)
+  camera_fb_t* flush = esp_camera_fb_get();
+  if (flush)
   {
-    s->set_exposure_ctrl(s, 1);
-    s->set_gain_ctrl(s, 1);
-    for (uint8_t i = 0; i < AE_CONVERGE_FRAMES; i++)
-    {
-      camera_fb_t* tmp = esp_camera_fb_get();
-      if (tmp) esp_camera_fb_return(tmp);
-      delay(AE_CONVERGE_DELAY_MS);
-    }
-    s->set_exposure_ctrl(s, 0);
-    s->set_gain_ctrl(s, 0);
-    camera_fb_t* flush = esp_camera_fb_get();
-    if (flush) esp_camera_fb_return(flush);
+    esp_camera_fb_return(flush);
   }
 
   unsigned long t = micros();
@@ -174,7 +200,10 @@ camera_fb_t* capture()
   #if defined(LED_GPIO_NUM) && USE_LED_FLASH
     ledFlashOff();
   #endif
-  printSensorValues(s);
+  if (s)
+  {
+    printSensorValues(s);
+  }
   if (!fb)
   {
     Serial.println("capture() failed - no framebuffer");
