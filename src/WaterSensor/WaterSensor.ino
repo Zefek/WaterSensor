@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 
 const size_t CHUNK_SIZE = 1400;
@@ -11,10 +12,13 @@ const uint16_t CLIENT_TIMEOUT_S = 30;
 const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 const int BASE_DELAY_MS = 1000;
 const int MAX_RETRIES = 5;
+const uint8_t MAX_CAMERA_ERRORS = 3;
+const uint32_t WDT_TIMEOUT_S = 90;
 
 //Interval snímání (1 minut)
 const unsigned long interval = 1 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
+uint8_t consecutiveCameraErrors = 0;
 
 int readHttpStatus(WiFiClient& client) 
 {
@@ -41,6 +45,7 @@ int readHttpStatus(WiFiClient& client)
         }
       }
     }
+    esp_task_wdt_reset();
     delay(5);
   }
   return -1;
@@ -85,8 +90,25 @@ void captureAndSend()
   {
     Serial.println("Chyba při pořizování obrázku");
     diagCountCameraError();
+    if (++consecutiveCameraErrors >= MAX_CAMERA_ERRORS)
+    {
+      Serial.printf("Kamera selhala %dx po sobě, reinicializuji senzor (bez restartu)...\n",
+                    consecutiveCameraErrors);
+      deInit();
+      if (initCamera())
+      {
+        warmUp(3);
+        Serial.println("Kamera reinicializována.");
+      }
+      else
+      {
+        Serial.println("Reinicializace kamery se nezdařila, zkusím to znovu později.");
+      }
+      consecutiveCameraErrors = 0;
+    }
     return;
   }
+  consecutiveCameraErrors = 0;
   diagCountCapture();
   size_t len = fb->len;
   Serial.printf("Pořízen obrázek (%d B)\n", len);
@@ -111,6 +133,7 @@ void captureAndSend()
   uint32_t duration = 0;
   do
   {
+    esp_task_wdt_reset();
     duration = 0;
     sent = 0;
     client.stop();
@@ -160,6 +183,7 @@ void captureAndSend()
         break;
       }
       sent += wrote;
+      esp_task_wdt_reset();
     }
     duration = millis() - t0;
     if (sent == len)
@@ -202,6 +226,7 @@ void connectToWifi()
   uint32_t startAttempt = millis();
   while (WiFi.status() != WL_CONNECTED)
   {
+    esp_task_wdt_reset();
     delay(500);
     Serial.print(".");
     if (millis() - startAttempt > WIFI_CONNECT_TIMEOUT_MS)
@@ -220,15 +245,34 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
-
-  if (!initCamera())
+  esp_task_wdt_config_t wdtCfg = {
+     .timeout_ms = WDT_TIMEOUT_S * 1000,
+     .idle_core_mask = 0,
+     .trigger_panic = true,
+  };
+  if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE)
   {
-    Serial.println("Kamera se nepodařila inicializovat, restartuji...");
-    delay(2000);
-    ESP.restart();
+    esp_task_wdt_reconfigure(&wdtCfg);
+  }
+   esp_task_wdt_add(NULL);
+
+  bool camReady = initCamera();
+  for (uint8_t attempt = 1; !camReady && attempt <= MAX_CAMERA_ERRORS; attempt++)
+  {
+    Serial.printf("Kamera se nepodařila inicializovat (pokus %d), reinicializuji senzor...\n", attempt);
+    deInit();
+    delay(500);
+    camReady = initCamera();
   }
 
-  warmUp(3);
+  if (camReady)
+  {
+    warmUp(3);
+  }
+  else
+  {
+    Serial.println("Kamera se nenahodila ani po opakování, pokračuji bez ní (diagnostika poběží).");
+  }
 
   lastCaptureTime = millis() - interval;
 }
@@ -236,6 +280,7 @@ void setup()
 void loop()
 {
   uint32_t loopStart = millis();
+  esp_task_wdt_reset();
 
   if(WiFi.status() != WL_CONNECTED)
   {
