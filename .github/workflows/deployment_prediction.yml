@@ -19,7 +19,15 @@ jobs:
     env:
       REPO: ${{ vars.REPO }}
       TARGET_PATH: ${{ vars.TARGET_PATH }}
+      SERVICE_NAME: ${{ vars.SERVICE_NAME }}
     steps:
+
+      - name: Kontrola vstupů
+        shell: powershell
+        run: |
+          if (-not $env:SERVICE_NAME) { throw 'Chybí proměnná prostředí SERVICE_NAME (vars.SERVICE_NAME).' }
+          if (-not $env:TARGET_PATH)  { throw 'Chybí proměnná prostředí TARGET_PATH (vars.TARGET_PATH).' }
+          if (-not $env:REPO)         { throw 'Chybí proměnná prostředí REPO (vars.REPO).' }
 
       - name: Checkout repository
         uses: actions/checkout@v7
