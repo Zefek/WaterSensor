@@ -1,3 +1,4 @@
 **/config.h
 **/config_secret.py
 **/config.py
+/src/Recognition/__pycache__
