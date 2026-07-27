@@ -1,13 +1,13 @@
-import os
-import re
-import random
 import hashlib
+import os
+import random
+import re
 from collections import defaultdict
 
-import numpy as np
-import cv2
-from PIL import Image
 import config
+import cv2
+import numpy as np
+from PIL import Image
 
 TRAIN_CAP_PER_CLASS = 3000
 VAL_CAP_PER_CLASS = 500
@@ -111,7 +111,7 @@ def process_split(entries, split_name: str, cap_per_class):
                     )
                     crop_img.save(out_path, "JPEG", quality=95)
                     saved += 1
-        except Exception as e:
+        except (OSError, ValueError, SyntaxError) as e:
             failed_open += 1
             print(f"  WARN open failed: {os.path.basename(path)}: {e}")
 

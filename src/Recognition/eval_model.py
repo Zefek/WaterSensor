@@ -13,20 +13,19 @@ Použití:
 --save-bad  uloží výřezy chyb do <složka>/_eval_bad/<kýbl>/ (cap na kýbl).
 Vždy zapíše <složka>/eval_errors.csv se všemi neshodami.
 """
+import csv
 import os
+import random
 import re
 import sys
-import csv
-import random
 from collections import Counter, defaultdict
 
-import numpy as np
+import config
 import cv2
+import numpy as np
 from PIL import Image
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import img_to_array
-
-import config
 
 FILE_RE = re.compile(r"^vodomer_([0-9a-fA-F]+)_(\d{1,5}),(\d{4})\.jpg$")
 COORDS = config.DIGIT_COORDS
@@ -122,7 +121,7 @@ def main():
             try:
                 img = Image.open(path)
                 cs = [crop_digit(img, c) for c in COORDS]
-            except Exception as e:
+            except (OSError, ValueError, SyntaxError) as e:
                 print(f"  WARN {os.path.basename(path)}: {e}")
                 continue
             opened.add(li)

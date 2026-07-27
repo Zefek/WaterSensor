@@ -1,16 +1,16 @@
-import numpy as np
-from tensorflow.keras.utils import img_to_array
-from tensorflow.keras.models import load_model
-from PIL import Image
 import json
-import cv2
-import pika
-import os
 import math
+import os
 import time
 
 import config
 import config_secret
+import cv2
+import numpy as np
+import pika
+from PIL import Image
+from tensorflow.keras.models import load_model
+from tensorflow.keras.utils import img_to_array
 
 model = load_model(config.MODEL_PATH)
 imageFolder = config.IMAGE_FOLDER
@@ -27,7 +27,7 @@ def detect_jpeg_glitch(path, threshold=30):
     try:
         img = Image.open(path)
         img.verify()
-    except Exception:
+    except (OSError, ValueError, SyntaxError):
         print("Img verify")
         return False
     img2 = cv2.imread(path)
@@ -90,9 +90,8 @@ def preprocess_image(image_path):
     values["confidence"] = values["cnn_confidence"]   # zpětná kompatibilita; přepočítej po opravě
     values["digit_probs"] = digit_probs               # 5×10 softmax pro přepočet confidence
     print("Výsledek:", pocitadlo)
-    counter = 0
     error = False
-    for(x, y , w, h) in areas2:
+    for counter, (x, y, w, h) in enumerate(areas2):
         img2 = img.crop((x, y, x + w, y + h))
         img2_np = np.array(img2)
         img2_cv = cv2.cvtColor(img2_np, cv2.COLOR_RGB2BGR)
@@ -123,7 +122,6 @@ def preprocess_image(image_path):
         else:
             error = True
             values[f"value_{counter}"] = -1
-        counter += 1
     if error:
         values["result"] = "Fail"
     else:
@@ -186,7 +184,7 @@ def callback(ch, method, properties, body):
         result["correlationId"] = corrId
         message = json.dumps(result)
         if result["result"] == "OK":
-            d4 = int(math.floor(result["value_3"]))
+            d4 = math.floor(result["value_3"])
             d3 = get_value(result["value_2"], d4)
             d2 = get_value(result["value_1"], d3)
             d1 = get_value(result["value_0"], d2)
