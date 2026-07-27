@@ -1,6 +1,7 @@
 import os
 from collections import Counter
 
+import config
 import numpy as np
 import tensorflow as tf
 from PIL import Image
@@ -8,8 +9,6 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.models import load_model
 from tensorflow.keras.utils import img_to_array
-
-import config
 
 DATA_ROOT = config.IMAGE_TRAINING_FOLDER
 
