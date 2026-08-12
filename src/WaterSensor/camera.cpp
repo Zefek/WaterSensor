@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Preferences.h>
 #include "camera.h"
 #include "pin_config.h"
 #include "esp_camera.h"
@@ -8,6 +9,14 @@
 
 const uint8_t AE_CONVERGE_FRAMES = 10;
 const uint16_t AE_CONVERGE_DELAY_MS = 100;
+
+const uint8_t EXPOSURE_AGC_MAX = 30;
+
+const char* EXPOSURE_NS = "cam";
+const char* EXPOSURE_KEY_AEC = "aec";
+const char* EXPOSURE_KEY_AGC = "agc";
+
+Preferences exposurePrefs;
 
 void lockCameraSettings(sensor_t *s)
 {
@@ -139,7 +148,7 @@ bool initCamera()
     setupLedFlash();
   #endif
 
-  calibrateExposure();
+  setupExposure();
 
   Serial.println("Kamera inicializována.");
   return true;
@@ -175,8 +184,73 @@ void calibrateExposure()
     ledFlashOff();
   #endif
 
+  if (s->init_status)
+  {
+    s->init_status(s);
+  }
+
   Serial.printf("Kamera: expozice zafixována (aec_value=%u agc_gain=%u).\n",
                 (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
+}
+
+bool applyStoredExposure(sensor_t *s)
+{
+  if (!exposurePrefs.begin(EXPOSURE_NS, true))
+  {
+    return false;
+  }
+  bool stored = exposurePrefs.isKey(EXPOSURE_KEY_AEC) && exposurePrefs.isKey(EXPOSURE_KEY_AGC);
+  uint16_t aec = exposurePrefs.getUShort(EXPOSURE_KEY_AEC, 0);
+  uint8_t agc = exposurePrefs.getUChar(EXPOSURE_KEY_AGC, 0);
+  exposurePrefs.end();
+
+  if (!stored || aec == 0 || agc > EXPOSURE_AGC_MAX)
+  {
+    return false;
+  }
+
+  s->set_exposure_ctrl(s, 0);
+  s->set_gain_ctrl(s, 0);
+  s->set_aec_value(s, aec);
+  s->set_agc_gain(s, agc);
+  Serial.printf("Kamera: expozice z NVS (aec_value=%u agc_gain=%u), kalibrace přeskočena.\n",
+                (unsigned)aec, (unsigned)agc);
+  return true;
+}
+
+void storeExposure(sensor_t *s)
+{
+  if (s->status.aec_value == 0 || s->status.agc_gain > EXPOSURE_AGC_MAX)
+  {
+    Serial.printf("Kamera: expozice mimo rozsah (aec_value=%u agc_gain=%u), neukládám.\n",
+                  (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
+    return;
+  }
+  if (!exposurePrefs.begin(EXPOSURE_NS, false))
+  {
+    Serial.println("Kamera: NVS se nepodařilo otevřít, expozice se neuloží.");
+    return;
+  }
+  exposurePrefs.putUShort(EXPOSURE_KEY_AEC, (uint16_t)s->status.aec_value);
+  exposurePrefs.putUChar(EXPOSURE_KEY_AGC, (uint8_t)s->status.agc_gain);
+  exposurePrefs.end();
+  Serial.printf("Kamera: expozice uložena do NVS (aec_value=%u agc_gain=%u).\n",
+                (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
+}
+
+void setupExposure()
+{
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s)
+  {
+    return;
+  }
+  if (applyStoredExposure(s))
+  {
+    return;
+  }
+  calibrateExposure();
+  storeExposure(s);
 }
 
 camera_fb_t* capture()

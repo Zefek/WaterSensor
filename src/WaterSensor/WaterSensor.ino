@@ -10,7 +10,9 @@
 
 const size_t CHUNK_SIZE = 1400;
 const uint16_t CLIENT_TIMEOUT_S = 30;
-const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
+const uint32_t WIFI_RETRY_MIN_MS = 5000;
+const uint32_t WIFI_RETRY_MAX_MS = 60000;
+const uint32_t WIFI_DOWN_RESTART_MS = 10UL * 60UL * 1000UL;
 const int BASE_DELAY_MS = 1000;
 const int MAX_RETRIES = 5;
 const uint8_t MAX_CAMERA_ERRORS = 3;
@@ -20,6 +22,12 @@ const uint32_t WDT_TIMEOUT_S = 90;
 const unsigned long interval = 1 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
 uint8_t consecutiveCameraErrors = 0;
+
+bool wifiStarted = false;
+bool wifiConnected = false;
+uint32_t wifiLastAttempt = 0;
+uint32_t wifiRetryDelay = 0;
+uint32_t wifiDownSince = 0;
 
 int readHttpStatus(WiFiClient& client) 
 {
@@ -219,28 +227,66 @@ void captureAndSend()
                      (uint8_t)tryCount, success, (int16_t)httpCode, (int8_t)rssi);
 }
 
-void connectToWifi()
+void wifiLoop()
 {
-  esp_sntp_servermode_dhcp(true);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WifiSSID, WifiPassword);
-  Serial.print("Připojuji se na Wi-Fi");
-  uint32_t startAttempt = millis();
-  while (WiFi.status() != WL_CONNECTED)
+  uint32_t now = millis();
+
+  if (WiFi.status() == WL_CONNECTED)
   {
-    esp_task_wdt_reset();
-    delay(500);
-    Serial.print(".");
-    if (millis() - startAttempt > WIFI_CONNECT_TIMEOUT_MS)
+    if (!wifiConnected)
     {
-      Serial.println("\nWi-Fi se nepodařilo připojit v limitu, restartuji...");
-      ESP.restart();
+      wifiConnected = true;
+      wifiDownSince = 0;
+      wifiRetryDelay = 0;
+      WiFi.setSleep(false);
+      Serial.printf("Wi-Fi připojeno, IP: %s\n", WiFi.localIP().toString().c_str());
+      diagCountWifiReconnect();
+      otaBegin();
     }
+    return;
   }
-  WiFi.setSleep(false);
-  Serial.println("\nWi-Fi připojeno");
-  diagCountWifiReconnect();
-  otaBegin();
+
+  if (wifiConnected)
+  {
+    wifiConnected = false;
+    Serial.println("Wi-Fi spojení ztraceno, obnovuji na pozadí...");
+  }
+
+  if (wifiDownSince == 0)
+  {
+    wifiDownSince = now;
+  }
+  else if (now - wifiDownSince >= WIFI_DOWN_RESTART_MS)
+  {
+    Serial.printf("Wi-Fi nedostupná %lu s, restartuji...\n",
+                  (unsigned long)((now - wifiDownSince) / 1000));
+    ESP.restart();
+  }
+
+  if (!wifiStarted)
+  {
+    WiFi.mode(WIFI_STA);
+    esp_sntp_servermode_dhcp(true);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(WifiSSID, WifiPassword);
+    wifiStarted = true;
+    wifiLastAttempt = now;
+    wifiRetryDelay = WIFI_RETRY_MIN_MS;
+    Serial.println("Připojuji se na Wi-Fi...");
+    return;
+  }
+
+  if (now - wifiLastAttempt < wifiRetryDelay)
+  {
+    return;
+  }
+
+  wifiLastAttempt = now;
+  wifiRetryDelay = wifiRetryDelay * 2 > WIFI_RETRY_MAX_MS ? WIFI_RETRY_MAX_MS : wifiRetryDelay * 2;
+  Serial.printf("Wi-Fi nepřipojena (status %d), nový pokus, další za %lu s\n",
+                (int)WiFi.status(), (unsigned long)(wifiRetryDelay / 1000));
+  WiFi.disconnect();
+  WiFi.begin(WifiSSID, WifiPassword);
 }
 
 void setup()
@@ -284,10 +330,8 @@ void loop()
   uint32_t loopStart = millis();
   esp_task_wdt_reset();
 
-  if(WiFi.status() != WL_CONNECTED)
-  {
-    connectToWifi();
-  }
+  wifiLoop();
+
   if(WiFi.status() == WL_CONNECTED)
   {
     static uint32_t lastCfgAttempt = 0;
