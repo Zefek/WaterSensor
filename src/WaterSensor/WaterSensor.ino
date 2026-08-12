@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <esp_task_wdt.h>
+#include <esp_sntp.h>
 #include "config.h"
 
 const size_t CHUNK_SIZE = 1400;
@@ -220,6 +221,7 @@ void captureAndSend()
 
 void connectToWifi()
 {
+  esp_sntp_servermode_dhcp(true);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WifiSSID, WifiPassword);
   Serial.print("Připojuji se na Wi-Fi");
