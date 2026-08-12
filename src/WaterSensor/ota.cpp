@@ -21,6 +21,14 @@ char ntpFromDhcp[16] = "";
 #define FW_VERSION 0
 #endif
 
+const time_t TIME_VALID_THRESHOLD = 1700000000;
+const uint32_t TIME_SYNC_WAIT_MS = 15000;
+const uint32_t TIME_RETRY_MIN_MS = 30000;
+const uint32_t TIME_RETRY_MAX_MS = 300000;
+
+uint32_t timeLastTry = 0;
+uint32_t timeRetryDelay = 0;
+
 static bool syncTime()
 {
   const ip_addr_t* dhcpServer = esp_sntp_getserver(0);
@@ -40,9 +48,9 @@ static bool syncTime()
   Serial.print("OTA: synchronizuji cas (NTP) ...");
   time_t now = 0;
   uint32_t start = millis();
-  while (now < 1700000000)
+  while (now < TIME_VALID_THRESHOLD)
   {
-    if (millis() - start > 15000)
+    if (millis() - start > TIME_SYNC_WAIT_MS)
     {
       Serial.println(" timeout (cert se nemusi overit).");
       return false;
@@ -95,13 +103,44 @@ static void doOTA()
   }
 }
 
-void otaBegin()
+void otaTimeReset()
 {
-  static bool timeSynced = false;
-  if (!timeSynced && WiFi.status() == WL_CONNECTED)
+  timeRetryDelay = 0;
+}
+
+bool otaTimeLoop()
+{
+  time_t now = 0;
+  time(&now);
+  if (now >= TIME_VALID_THRESHOLD)
   {
-    timeSynced = syncTime();
+    timeRetryDelay = 0;
+    return true;
   }
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    return false;
+  }
+
+  uint32_t millisNow = millis();
+  if (timeRetryDelay != 0 && millisNow - timeLastTry < timeRetryDelay)
+  {
+    return false;
+  }
+  timeLastTry = millisNow;
+
+  if (syncTime())
+  {
+    timeRetryDelay = 0;
+    return true;
+  }
+
+  timeRetryDelay = timeRetryDelay == 0
+    ? TIME_RETRY_MIN_MS
+    : (timeRetryDelay * 2 > TIME_RETRY_MAX_MS ? TIME_RETRY_MAX_MS : timeRetryDelay * 2);
+  Serial.printf("OTA: cas nesynchronizovan, odesilani pozastaveno, dalsi pokus za %lu s\n",
+                (unsigned long)(timeRetryDelay / 1000));
+  return false;
 }
 
 void otaLoop()

@@ -10,13 +10,18 @@
 const uint8_t AE_CONVERGE_FRAMES = 10;
 const uint16_t AE_CONVERGE_DELAY_MS = 100;
 
+const uint16_t EXPOSURE_AEC_MAX = 1200;
 const uint8_t EXPOSURE_AGC_MAX = 30;
+const uint32_t EXPOSURE_TRIAL_MAGIC = 0x45585031;
 
 const char* EXPOSURE_NS = "cam";
 const char* EXPOSURE_KEY_AEC = "aec";
 const char* EXPOSURE_KEY_AGC = "agc";
 
 Preferences exposurePrefs;
+
+RTC_NOINIT_ATTR uint32_t exposureTrial;
+bool exposureTrialActive = false;
 
 void lockCameraSettings(sensor_t *s)
 {
@@ -157,7 +162,7 @@ bool initCamera()
 void calibrateExposure()
 {
   sensor_t *s = esp_camera_sensor_get();
-  if (!s)
+  if (!s || !s->set_exposure_ctrl || !s->set_gain_ctrl)
   {
     return;
   }
@@ -193,8 +198,54 @@ void calibrateExposure()
                 (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
 }
 
+bool exposureManualSupported(sensor_t *s)
+{
+  return s->set_exposure_ctrl && s->set_gain_ctrl && s->set_aec_value && s->set_agc_gain;
+}
+
+bool exposureValuesSane(uint16_t aec, uint8_t agc)
+{
+  return aec > 0 && aec <= EXPOSURE_AEC_MAX && agc <= EXPOSURE_AGC_MAX;
+}
+
+void forgetStoredExposure()
+{
+  if (!exposurePrefs.begin(EXPOSURE_NS, false))
+  {
+    return;
+  }
+  exposurePrefs.remove(EXPOSURE_KEY_AEC);
+  exposurePrefs.remove(EXPOSURE_KEY_AGC);
+  exposurePrefs.end();
+}
+
+void confirmStoredExposure()
+{
+  if (!exposureTrialActive)
+  {
+    return;
+  }
+  exposureTrialActive = false;
+  exposureTrial = 0;
+  Serial.println("Kamera: uložená expozice potvrzena, snímek se čte.");
+}
+
 bool applyStoredExposure(sensor_t *s)
 {
+  if (!exposureManualSupported(s))
+  {
+    Serial.println("Kamera: senzor neumí ruční expozici, kalibruji.");
+    return false;
+  }
+
+  if (exposureTrial == EXPOSURE_TRIAL_MAGIC)
+  {
+    exposureTrial = 0;
+    Serial.println("Kamera: uložená expozice po restartu nepotvrzena, zahazuji ji a kalibruji.");
+    forgetStoredExposure();
+    return false;
+  }
+
   if (!exposurePrefs.begin(EXPOSURE_NS, true))
   {
     return false;
@@ -204,10 +255,20 @@ bool applyStoredExposure(sensor_t *s)
   uint8_t agc = exposurePrefs.getUChar(EXPOSURE_KEY_AGC, 0);
   exposurePrefs.end();
 
-  if (!stored || aec == 0 || agc > EXPOSURE_AGC_MAX)
+  if (!stored)
   {
     return false;
   }
+  if (!exposureValuesSane(aec, agc))
+  {
+    Serial.printf("Kamera: uložená expozice mimo rozsah (aec_value=%u agc_gain=%u), zahazuji ji.\n",
+                  (unsigned)aec, (unsigned)agc);
+    forgetStoredExposure();
+    return false;
+  }
+
+  exposureTrial = EXPOSURE_TRIAL_MAGIC;
+  exposureTrialActive = true;
 
   s->set_exposure_ctrl(s, 0);
   s->set_gain_ctrl(s, 0);
@@ -220,7 +281,11 @@ bool applyStoredExposure(sensor_t *s)
 
 void storeExposure(sensor_t *s)
 {
-  if (s->status.aec_value == 0 || s->status.agc_gain > EXPOSURE_AGC_MAX)
+  if (!exposureManualSupported(s))
+  {
+    return;
+  }
+  if (!exposureValuesSane((uint16_t)s->status.aec_value, (uint8_t)s->status.agc_gain))
   {
     Serial.printf("Kamera: expozice mimo rozsah (aec_value=%u agc_gain=%u), neukládám.\n",
                   (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
@@ -296,14 +361,20 @@ void returnFb(camera_fb_t* fb)
 
 void warmUp(uint8_t frames)
 {
+  bool gotFrame = false;
   for (uint8_t i = 0; i < frames; i++)
   {
     camera_fb_t* fb = esp_camera_fb_get();
     if (fb)
     {
+      gotFrame = true;
       esp_camera_fb_return(fb);
     }
     delay(200);
+  }
+  if (gotFrame)
+  {
+    confirmStoredExposure();
   }
   Serial.printf("Kamera: warm-up %u snimku hotovo.\n", frames);
 }

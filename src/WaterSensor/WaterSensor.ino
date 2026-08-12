@@ -10,7 +10,7 @@
 
 const size_t CHUNK_SIZE = 1400;
 const uint16_t CLIENT_TIMEOUT_S = 30;
-const uint32_t WIFI_RETRY_MIN_MS = 5000;
+const uint32_t WIFI_RETRY_MIN_MS = 15000;
 const uint32_t WIFI_RETRY_MAX_MS = 60000;
 const uint32_t WIFI_DOWN_RESTART_MS = 10UL * 60UL * 1000UL;
 const int BASE_DELAY_MS = 1000;
@@ -241,7 +241,7 @@ void wifiLoop()
       WiFi.setSleep(false);
       Serial.printf("Wi-Fi připojeno, IP: %s\n", WiFi.localIP().toString().c_str());
       diagCountWifiReconnect();
-      otaBegin();
+      otaTimeReset();
     }
     return;
   }
@@ -332,7 +332,7 @@ void loop()
 
   wifiLoop();
 
-  if(WiFi.status() == WL_CONNECTED)
+  if(WiFi.status() == WL_CONNECTED && otaTimeLoop())
   {
     static uint32_t lastCfgAttempt = 0;
     if (diagConfigChanged() && (lastCfgAttempt == 0 || millis() - lastCfgAttempt >= 30000UL))

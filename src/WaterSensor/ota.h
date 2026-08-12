@@ -1,4 +1,5 @@
 #pragma once
 
-void otaBegin();
+void otaTimeReset();
+bool otaTimeLoop();
 void otaLoop();
