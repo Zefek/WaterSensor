@@ -3,16 +3,33 @@
 #include "camera.h"
 #include "pin_config.h"
 #include "esp_camera.h"
+#include "esp_jpg_decode.h"
 #include "esp_psram.h"
 
 #define USE_LED_FLASH 1
 
-const uint8_t AE_CONVERGE_FRAMES = 10;
-const uint16_t AE_CONVERGE_DELAY_MS = 100;
-
+const uint8_t EXPOSURE_TARGET_MEAN = 128;
+const uint8_t EXPOSURE_CONVERGE_TOLERANCE = 8;
+const uint8_t EXPOSURE_MAX_STEPS = 8;
+const uint8_t EXPOSURE_SETTLE_FRAMES = 2;
+const uint16_t EXPOSURE_AEC_MIN = 4;
 const uint16_t EXPOSURE_AEC_MAX = 1200;
+const uint16_t EXPOSURE_AEC_START = 300;
 const uint8_t EXPOSURE_AGC_MAX = 30;
+const uint8_t EXPOSURE_AGC_STEP = 4;
 const uint32_t EXPOSURE_TRIAL_MAGIC = 0x45585031;
+
+const uint8_t QUALITY_MEAN_BAND = 45;
+const uint8_t QUALITY_CLIP_HIGH_MAX = 10;
+const uint8_t QUALITY_CONTRAST_MIN = 25;
+const uint8_t QUALITY_BAD_STREAK = 3;
+const uint32_t RECALIBRATION_MIN_INTERVAL_MS = 60UL * 60UL * 1000UL;
+const uint32_t RECALIBRATION_MAX_INTERVAL_MS = 24UL * 60UL * 60UL * 1000UL;
+
+const uint8_t ROI_X_FROM_PCT = 20;
+const uint8_t ROI_X_TO_PCT = 80;
+const uint8_t ROI_Y_FROM_PCT = 20;
+const uint8_t ROI_Y_TO_PCT = 80;
 
 const char* EXPOSURE_NS = "cam";
 const char* EXPOSURE_KEY_AEC = "aec";
@@ -22,6 +39,174 @@ Preferences exposurePrefs;
 
 RTC_NOINIT_ATTR uint32_t exposureTrial;
 bool exposureTrialActive = false;
+
+uint8_t badFrameStreak = 0;
+uint8_t lastFrameError = 255;
+bool recalibrationRequested = false;
+bool recalibrationRan = false;
+uint32_t lastRecalibration = 0;
+uint32_t recalibrationInterval = RECALIBRATION_MIN_INTERVAL_MS;
+
+struct HistogramCtx
+{
+  uint16_t bins[256];
+  uint32_t pixels;
+  uint16_t width;
+  uint16_t height;
+  uint16_t roiX0;
+  uint16_t roiX1;
+  uint16_t roiY0;
+  uint16_t roiY1;
+  const uint8_t* jpeg;
+  size_t jpegLen;
+};
+
+size_t jpegStatsReader(void* arg, size_t index, uint8_t* buf, size_t len)
+{
+  HistogramCtx* ctx = (HistogramCtx*)arg;
+  if (index >= ctx->jpegLen)
+  {
+    return 0;
+  }
+  size_t available = ctx->jpegLen - index;
+  if (len > available)
+  {
+    len = available;
+  }
+  if (buf)
+  {
+    memcpy(buf, ctx->jpeg + index, len);
+  }
+  return len;
+}
+
+bool jpegStatsWriter(void* arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t* data)
+{
+  HistogramCtx* ctx = (HistogramCtx*)arg;
+
+  if (!data)
+  {
+    if (x == 0 && y == 0)
+    {
+      ctx->width = w;
+      ctx->height = h;
+      ctx->roiX0 = (uint16_t)((uint32_t)w * ROI_X_FROM_PCT / 100);
+      ctx->roiX1 = (uint16_t)((uint32_t)w * ROI_X_TO_PCT / 100);
+      ctx->roiY0 = (uint16_t)((uint32_t)h * ROI_Y_FROM_PCT / 100);
+      ctx->roiY1 = (uint16_t)((uint32_t)h * ROI_Y_TO_PCT / 100);
+    }
+    return true;
+  }
+
+  for (uint16_t row = 0; row < h; row++)
+  {
+    uint16_t absY = y + row;
+    if (absY < ctx->roiY0 || absY >= ctx->roiY1)
+    {
+      continue;
+    }
+    for (uint16_t col = 0; col < w; col++)
+    {
+      uint16_t absX = x + col;
+      if (absX < ctx->roiX0 || absX >= ctx->roiX1)
+      {
+        continue;
+      }
+      const uint8_t* px = data + ((size_t)row * w + col) * 3;
+      uint8_t luma = (uint8_t)((77 * px[0] + 150 * px[1] + 29 * px[2]) >> 8);
+      ctx->bins[luma]++;
+      ctx->pixels++;
+    }
+  }
+  return true;
+}
+
+uint8_t histogramPercentile(const HistogramCtx* ctx, uint8_t percent)
+{
+  uint32_t target = (uint32_t)ctx->pixels * percent / 100;
+  uint32_t seen = 0;
+  for (uint16_t level = 0; level < 256; level++)
+  {
+    seen += ctx->bins[level];
+    if (seen >= target)
+    {
+      return (uint8_t)level;
+    }
+  }
+  return 255;
+}
+
+bool measureFrame(camera_fb_t* fb, FrameStats* stats)
+{
+  memset(stats, 0, sizeof(FrameStats));
+  if (!fb || fb->format != PIXFORMAT_JPEG)
+  {
+    return false;
+  }
+
+  HistogramCtx ctx;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.jpeg = fb->buf;
+  ctx.jpegLen = fb->len;
+
+  if (esp_jpg_decode(fb->len, JPG_SCALE_8X, jpegStatsReader, jpegStatsWriter, &ctx) != ESP_OK)
+  {
+    return false;
+  }
+  if (ctx.pixels == 0)
+  {
+    return false;
+  }
+
+  uint64_t sum = 0;
+  uint32_t dark = 0;
+  uint32_t bright = 0;
+  for (uint16_t level = 0; level < 256; level++)
+  {
+    sum += (uint64_t)ctx.bins[level] * level;
+    if (level <= 8)
+    {
+      dark += ctx.bins[level];
+    }
+    if (level >= 247)
+    {
+      bright += ctx.bins[level];
+    }
+  }
+
+  stats->mean = (uint8_t)(sum / ctx.pixels);
+  stats->p5 = histogramPercentile(&ctx, 5);
+  stats->p95 = histogramPercentile(&ctx, 95);
+  stats->contrast = (uint8_t)(stats->p95 - stats->p5);
+  stats->clipLow = (uint8_t)((uint64_t)dark * 100 / ctx.pixels);
+  stats->clipHigh = (uint8_t)((uint64_t)bright * 100 / ctx.pixels);
+  stats->valid = true;
+  return true;
+}
+
+bool measureNextFrame(FrameStats* stats)
+{
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb)
+  {
+    return false;
+  }
+  bool ok = measureFrame(fb, stats);
+  esp_camera_fb_return(fb);
+  return ok;
+}
+
+void dropFrames(uint8_t frames)
+{
+  for (uint8_t i = 0; i < frames; i++)
+  {
+    camera_fb_t* fb = esp_camera_fb_get();
+    if (fb)
+    {
+      esp_camera_fb_return(fb);
+    }
+  }
+}
 
 void lockCameraSettings(sensor_t *s)
 {
@@ -159,45 +344,6 @@ bool initCamera()
   return true;
 }
 
-void calibrateExposure()
-{
-  sensor_t *s = esp_camera_sensor_get();
-  if (!s || !s->set_exposure_ctrl || !s->set_gain_ctrl)
-  {
-    return;
-  }
-
-  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
-    ledFlashOn();
-  #endif
-
-  s->set_exposure_ctrl(s, 1);
-  s->set_gain_ctrl(s, 1);
-  for (uint8_t i = 0; i < AE_CONVERGE_FRAMES; i++)
-  {
-    camera_fb_t* tmp = esp_camera_fb_get();
-    if (tmp) esp_camera_fb_return(tmp);
-    delay(AE_CONVERGE_DELAY_MS);
-  }
-  s->set_exposure_ctrl(s, 0);
-  s->set_gain_ctrl(s, 0);
-
-  camera_fb_t* flush = esp_camera_fb_get();
-  if (flush) esp_camera_fb_return(flush);
-
-  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
-    ledFlashOff();
-  #endif
-
-  if (s->init_status)
-  {
-    s->init_status(s);
-  }
-
-  Serial.printf("Kamera: expozice zafixována (aec_value=%u agc_gain=%u).\n",
-                (unsigned)s->status.aec_value, (unsigned)s->status.agc_gain);
-}
-
 bool exposureManualSupported(sensor_t *s)
 {
   return s->set_exposure_ctrl && s->set_gain_ctrl && s->set_aec_value && s->set_agc_gain;
@@ -206,6 +352,127 @@ bool exposureManualSupported(sensor_t *s)
 bool exposureValuesSane(uint16_t aec, uint8_t agc)
 {
   return aec > 0 && aec <= EXPOSURE_AEC_MAX && agc <= EXPOSURE_AGC_MAX;
+}
+
+uint16_t clampAec(uint32_t value)
+{
+  if (value < EXPOSURE_AEC_MIN)
+  {
+    return EXPOSURE_AEC_MIN;
+  }
+  if (value > EXPOSURE_AEC_MAX)
+  {
+    return EXPOSURE_AEC_MAX;
+  }
+  return (uint16_t)value;
+}
+
+uint8_t meanError(uint8_t mean)
+{
+  return mean > EXPOSURE_TARGET_MEAN ? mean - EXPOSURE_TARGET_MEAN : EXPOSURE_TARGET_MEAN - mean;
+}
+
+bool calibrateExposure(uint8_t* achievedError)
+{
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s || !exposureManualSupported(s))
+  {
+    Serial.println("Kamera: senzor neumí ruční expozici, kalibrace vynechána.");
+    return false;
+  }
+
+  uint16_t aec = exposureValuesSane((uint16_t)s->status.aec_value, 0)
+    ? (uint16_t)s->status.aec_value
+    : EXPOSURE_AEC_START;
+  uint8_t agc = 0;
+
+  uint16_t bestAec = aec;
+  uint8_t bestAgc = agc;
+  uint8_t bestError = 255;
+
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
+    ledFlashOn();
+  #endif
+
+  s->set_exposure_ctrl(s, 0);
+  s->set_gain_ctrl(s, 0);
+
+  FrameStats stats;
+  for (uint8_t step = 0; step < EXPOSURE_MAX_STEPS; step++)
+  {
+    s->set_aec_value(s, aec);
+    s->set_agc_gain(s, agc);
+    dropFrames(EXPOSURE_SETTLE_FRAMES);
+
+    if (!measureNextFrame(&stats))
+    {
+      Serial.println("Kamera: kalibrace - snímek se nepodařilo změřit.");
+      break;
+    }
+
+    uint8_t error = meanError(stats.mean);
+    Serial.printf("Kamera: kalibrace krok %u aec=%u agc=%u -> mean=%u kontrast=%u přepal=%u%% černá=%u%%\n",
+                  (unsigned)(step + 1), (unsigned)aec, (unsigned)agc,
+                  (unsigned)stats.mean, (unsigned)stats.contrast,
+                  (unsigned)stats.clipHigh, (unsigned)stats.clipLow);
+
+    if (error < bestError)
+    {
+      bestError = error;
+      bestAec = aec;
+      bestAgc = agc;
+    }
+    if (error <= EXPOSURE_CONVERGE_TOLERANCE)
+    {
+      break;
+    }
+
+    uint32_t proposed = (uint32_t)aec * EXPOSURE_TARGET_MEAN / (stats.mean > 0 ? stats.mean : 1);
+    if (proposed > (uint32_t)aec * 4)
+    {
+      proposed = (uint32_t)aec * 4;
+    }
+    if (proposed < (uint32_t)aec / 4)
+    {
+      proposed = (uint32_t)aec / 4;
+    }
+    uint16_t next = clampAec(proposed);
+
+    if (next == aec)
+    {
+      if (stats.mean < EXPOSURE_TARGET_MEAN && agc + EXPOSURE_AGC_STEP <= EXPOSURE_AGC_MAX)
+      {
+        agc += EXPOSURE_AGC_STEP;
+        continue;
+      }
+      break;
+    }
+    aec = next;
+  }
+
+  s->set_aec_value(s, bestAec);
+  s->set_agc_gain(s, bestAgc);
+  dropFrames(EXPOSURE_SETTLE_FRAMES);
+
+  #if defined(LED_GPIO_NUM) && USE_LED_FLASH
+    ledFlashOff();
+  #endif
+
+  if (achievedError)
+  {
+    *achievedError = bestError;
+  }
+
+  if (bestError == 255)
+  {
+    Serial.println("Kamera: kalibrace neuspěla, expozice zůstává nezměněna.");
+    return false;
+  }
+
+  Serial.printf("Kamera: expozice nastavena (aec_value=%u agc_gain=%u, odchylka od cíle %u=%u).\n",
+                (unsigned)bestAec, (unsigned)bestAgc,
+                (unsigned)EXPOSURE_TARGET_MEAN, (unsigned)bestError);
+  return true;
 }
 
 void forgetStoredExposure()
@@ -314,7 +581,93 @@ void setupExposure()
   {
     return;
   }
-  calibrateExposure();
+  uint8_t achieved = 255;
+  if (calibrateExposure(&achieved))
+  {
+    storeExposure(s);
+    lastFrameError = achieved;
+  }
+  lastRecalibration = millis();
+  recalibrationRan = true;
+}
+
+void noteFrameStats(const FrameStats* stats)
+{
+  if (!stats || !stats->valid)
+  {
+    return;
+  }
+
+  lastFrameError = meanError(stats->mean);
+  Serial.printf("Kvalita snímku: mean=%u (cíl %u) kontrast=%u přepal=%u%% černá=%u%%\n",
+                (unsigned)stats->mean, (unsigned)EXPOSURE_TARGET_MEAN,
+                (unsigned)stats->contrast, (unsigned)stats->clipHigh, (unsigned)stats->clipLow);
+
+  if (stats->contrast < QUALITY_CONTRAST_MIN)
+  {
+    Serial.printf("Kvalita snímku: nízký kontrast (%u), expozicí se to nespraví - zkontroluj optiku.\n",
+                  (unsigned)stats->contrast);
+  }
+
+  bool exposureBad = lastFrameError > QUALITY_MEAN_BAND || stats->clipHigh > QUALITY_CLIP_HIGH_MAX;
+  badFrameStreak = exposureBad ? (uint8_t)(badFrameStreak + 1) : 0;
+
+  if (badFrameStreak >= QUALITY_BAD_STREAK)
+  {
+    badFrameStreak = 0;
+    recalibrationRequested = true;
+    Serial.println("Kvalita snímku: expozice mimo pásmo, žádám rekalibraci.");
+  }
+}
+
+bool exposureRecalibrationDue()
+{
+  if (!recalibrationRequested)
+  {
+    return false;
+  }
+  if (!recalibrationRan)
+  {
+    return true;
+  }
+  return millis() - lastRecalibration >= recalibrationInterval;
+}
+
+void runRecalibration()
+{
+  recalibrationRequested = false;
+  recalibrationRan = true;
+  lastRecalibration = millis();
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s || !exposureManualSupported(s))
+  {
+    return;
+  }
+
+  uint16_t prevAec = (uint16_t)s->status.aec_value;
+  uint8_t prevAgc = (uint8_t)s->status.agc_gain;
+  uint8_t prevError = lastFrameError;
+
+  uint8_t achieved = 255;
+  bool ok = calibrateExposure(&achieved);
+
+  if (!ok || achieved >= prevError)
+  {
+    Serial.printf("Kamera: rekalibrace nepomohla (odchylka %u vs %u), vracím předchozí expozici.\n",
+                  (unsigned)achieved, (unsigned)prevError);
+    s->set_aec_value(s, prevAec);
+    s->set_agc_gain(s, prevAgc);
+    dropFrames(EXPOSURE_SETTLE_FRAMES);
+    uint32_t next = recalibrationInterval * 6;
+    recalibrationInterval = next > RECALIBRATION_MAX_INTERVAL_MS ? RECALIBRATION_MAX_INTERVAL_MS : next;
+    Serial.printf("Kamera: další rekalibrace nejdřív za %lu min.\n",
+                  (unsigned long)(recalibrationInterval / 60000));
+    return;
+  }
+
+  recalibrationInterval = RECALIBRATION_MIN_INTERVAL_MS;
+  lastFrameError = achieved;
   storeExposure(s);
 }
 

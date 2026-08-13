@@ -121,6 +121,13 @@ void captureAndSend()
   diagCountCapture();
   size_t len = fb->len;
   Serial.printf("Pořízen obrázek (%d B)\n", len);
+
+  FrameStats stats;
+  if (measureFrame(fb, &stats))
+  {
+    noteFrameStats(&stats);
+  }
+
   int rssi = WiFi.RSSI();
   Serial.print("RSSI: ");
   Serial.println(rssi);
@@ -353,6 +360,11 @@ void loop()
       uint8_t diagBuf[40];
       size_t n = diagBuildDeviceBlob(diagBuf, sizeof(diagBuf));
       if (n) postBinary(endpointDiag, diagBuf, n);
+    }
+
+    if (exposureRecalibrationDue())
+    {
+      runRecalibration();
     }
 
     if (millis() - lastCaptureTime >= interval)
