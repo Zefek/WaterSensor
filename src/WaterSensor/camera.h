@@ -5,8 +5,8 @@
 struct FrameStats
 {
   uint8_t mean;
-  uint8_t p5;
-  uint8_t p95;
+  uint8_t p10;
+  uint8_t p90;
   uint8_t contrast;
   uint8_t clipLow;
   uint8_t clipHigh;

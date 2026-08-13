@@ -8,8 +8,9 @@
 
 #define USE_LED_FLASH 1
 
-const uint8_t EXPOSURE_TARGET_MEAN = 128;
+const uint8_t EXPOSURE_TARGET_P90 = 220;
 const uint8_t EXPOSURE_CONVERGE_TOLERANCE = 8;
+const uint8_t EXPOSURE_CLIP_HIGH_MAX = 2;
 const uint8_t EXPOSURE_MAX_STEPS = 8;
 const uint8_t EXPOSURE_SETTLE_FRAMES = 2;
 const uint16_t EXPOSURE_AEC_MIN = 4;
@@ -19,7 +20,7 @@ const uint8_t EXPOSURE_AGC_MAX = 30;
 const uint8_t EXPOSURE_AGC_STEP = 4;
 const uint32_t EXPOSURE_TRIAL_MAGIC = 0x45585031;
 
-const uint8_t QUALITY_MEAN_BAND = 45;
+const uint8_t QUALITY_BAND = 40;
 const uint8_t QUALITY_CLIP_HIGH_MAX = 10;
 const uint8_t QUALITY_CONTRAST_MIN = 25;
 const uint8_t QUALITY_BAD_STREAK = 3;
@@ -175,9 +176,9 @@ bool measureFrame(camera_fb_t* fb, FrameStats* stats)
   }
 
   stats->mean = (uint8_t)(sum / ctx.pixels);
-  stats->p5 = histogramPercentile(&ctx, 5);
-  stats->p95 = histogramPercentile(&ctx, 95);
-  stats->contrast = (uint8_t)(stats->p95 - stats->p5);
+  stats->p10 = histogramPercentile(&ctx, 10);
+  stats->p90 = histogramPercentile(&ctx, 90);
+  stats->contrast = (uint8_t)(stats->p90 - stats->p10);
   stats->clipLow = (uint8_t)((uint64_t)dark * 100 / ctx.pixels);
   stats->clipHigh = (uint8_t)((uint64_t)bright * 100 / ctx.pixels);
   stats->valid = true;
@@ -367,9 +368,17 @@ uint16_t clampAec(uint32_t value)
   return (uint16_t)value;
 }
 
-uint8_t meanError(uint8_t mean)
+uint8_t targetError(const FrameStats* stats)
 {
-  return mean > EXPOSURE_TARGET_MEAN ? mean - EXPOSURE_TARGET_MEAN : EXPOSURE_TARGET_MEAN - mean;
+  uint8_t error = stats->p90 > EXPOSURE_TARGET_P90
+    ? stats->p90 - EXPOSURE_TARGET_P90
+    : EXPOSURE_TARGET_P90 - stats->p90;
+  if (stats->clipHigh > EXPOSURE_CLIP_HIGH_MAX)
+  {
+    uint16_t penalty = (uint16_t)error + (stats->clipHigh - EXPOSURE_CLIP_HIGH_MAX) * 10;
+    return penalty > 254 ? 254 : (uint8_t)penalty;
+  }
+  return error;
 }
 
 bool calibrateExposure(uint8_t* achievedError)
@@ -410,10 +419,10 @@ bool calibrateExposure(uint8_t* achievedError)
       break;
     }
 
-    uint8_t error = meanError(stats.mean);
-    Serial.printf("Kamera: kalibrace krok %u aec=%u agc=%u -> mean=%u kontrast=%u přepal=%u%% černá=%u%%\n",
+    uint8_t error = targetError(&stats);
+    Serial.printf("Kamera: kalibrace krok %u aec=%u agc=%u -> p90=%u mean=%u kontrast=%u přepal=%u%% černá=%u%%\n",
                   (unsigned)(step + 1), (unsigned)aec, (unsigned)agc,
-                  (unsigned)stats.mean, (unsigned)stats.contrast,
+                  (unsigned)stats.p90, (unsigned)stats.mean, (unsigned)stats.contrast,
                   (unsigned)stats.clipHigh, (unsigned)stats.clipLow);
 
     if (error < bestError)
@@ -427,7 +436,15 @@ bool calibrateExposure(uint8_t* achievedError)
       break;
     }
 
-    uint32_t proposed = (uint32_t)aec * EXPOSURE_TARGET_MEAN / (stats.mean > 0 ? stats.mean : 1);
+    uint32_t proposed;
+    if (stats.clipHigh > EXPOSURE_CLIP_HIGH_MAX)
+    {
+      proposed = (uint32_t)aec * 3 / 4;
+    }
+    else
+    {
+      proposed = (uint32_t)aec * EXPOSURE_TARGET_P90 / (stats.p90 > 0 ? stats.p90 : 1);
+    }
     if (proposed > (uint32_t)aec * 4)
     {
       proposed = (uint32_t)aec * 4;
@@ -440,7 +457,7 @@ bool calibrateExposure(uint8_t* achievedError)
 
     if (next == aec)
     {
-      if (stats.mean < EXPOSURE_TARGET_MEAN && agc + EXPOSURE_AGC_STEP <= EXPOSURE_AGC_MAX)
+      if (stats.p90 < EXPOSURE_TARGET_P90 && agc + EXPOSURE_AGC_STEP <= EXPOSURE_AGC_MAX)
       {
         agc += EXPOSURE_AGC_STEP;
         continue;
@@ -469,9 +486,9 @@ bool calibrateExposure(uint8_t* achievedError)
     return false;
   }
 
-  Serial.printf("Kamera: expozice nastavena (aec_value=%u agc_gain=%u, odchylka od cíle %u=%u).\n",
+  Serial.printf("Kamera: expozice nastavena (aec_value=%u agc_gain=%u, cíl p90=%u, odchylka %u).\n",
                 (unsigned)bestAec, (unsigned)bestAgc,
-                (unsigned)EXPOSURE_TARGET_MEAN, (unsigned)bestError);
+                (unsigned)EXPOSURE_TARGET_P90, (unsigned)bestError);
   return true;
 }
 
@@ -598,10 +615,11 @@ void noteFrameStats(const FrameStats* stats)
     return;
   }
 
-  lastFrameError = meanError(stats->mean);
-  Serial.printf("Kvalita snímku: mean=%u (cíl %u) kontrast=%u přepal=%u%% černá=%u%%\n",
-                (unsigned)stats->mean, (unsigned)EXPOSURE_TARGET_MEAN,
-                (unsigned)stats->contrast, (unsigned)stats->clipHigh, (unsigned)stats->clipLow);
+  lastFrameError = targetError(stats);
+  Serial.printf("Kvalita snímku: p90=%u (cíl %u) p10=%u mean=%u kontrast=%u přepal=%u%% černá=%u%%\n",
+                (unsigned)stats->p90, (unsigned)EXPOSURE_TARGET_P90, (unsigned)stats->p10,
+                (unsigned)stats->mean, (unsigned)stats->contrast,
+                (unsigned)stats->clipHigh, (unsigned)stats->clipLow);
 
   if (stats->contrast < QUALITY_CONTRAST_MIN)
   {
@@ -609,7 +627,7 @@ void noteFrameStats(const FrameStats* stats)
                   (unsigned)stats->contrast);
   }
 
-  bool exposureBad = lastFrameError > QUALITY_MEAN_BAND || stats->clipHigh > QUALITY_CLIP_HIGH_MAX;
+  bool exposureBad = lastFrameError > QUALITY_BAND || stats->clipHigh > QUALITY_CLIP_HIGH_MAX;
   badFrameStreak = exposureBad ? (uint8_t)(badFrameStreak + 1) : 0;
 
   if (badFrameStreak >= QUALITY_BAD_STREAK)
