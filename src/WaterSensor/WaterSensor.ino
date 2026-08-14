@@ -54,10 +54,12 @@ int readHttpStatus(WiFiClient& client)
 
 bool postBinary(const char* path, const uint8_t* data, size_t len)
 {
+  esp_task_wdt_reset();
   WiFiClientSecure client;
   client.setCACert(RootCA);
   client.setNoDelay(true);
   client.setConnectionTimeout(CLIENT_TIMEOUT_S * 1000);
+  client.setHandshakeTimeout(CLIENT_TIMEOUT_S);
   if (!client.connect(Server, Port))
   {
     client.stop();
@@ -123,6 +125,7 @@ void captureAndSend()
   uint32_t t0 = millis();
   WiFiClientSecure client;
   client.setCACert(RootCA);
+  client.setHandshakeTimeout(CLIENT_TIMEOUT_S);
   Serial.printf("Pred TLS (kamera aktivni): freeHeap=%u maxAlloc=%u\n",
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 

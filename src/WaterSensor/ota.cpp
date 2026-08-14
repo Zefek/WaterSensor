@@ -21,6 +21,8 @@ char ntpFromDhcp[16] = "";
 #define FW_VERSION 0
 #endif
 
+const uint32_t OTA_HANDSHAKE_TIMEOUT_S = 30;
+
 static bool syncTime()
 {
   const ip_addr_t* dhcpServer = esp_sntp_getserver(0);
@@ -59,8 +61,10 @@ static bool syncTime()
 static void doOTA()
 {
   Serial.printf("OTA: kontrola z %s (aktualni verze %d)\n", OtaUrl, (int)FW_VERSION);
+  esp_task_wdt_reset();
   WiFiClientSecure client;
   client.setCACert(RootCA);
+  client.setHandshakeTimeout(OTA_HANDSHAKE_TIMEOUT_S);
 
   HTTPUpdate updater(30000);
   updater.setAuthorization(OtaUser, OtaPassword);
