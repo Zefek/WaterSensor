@@ -221,8 +221,8 @@ void captureAndSend()
 
 void connectToWifi()
 {
-  esp_sntp_servermode_dhcp(true);
   WiFi.mode(WIFI_STA);
+  esp_sntp_servermode_dhcp(true);
   WiFi.begin(WifiSSID, WifiPassword);
   Serial.print("Připojuji se na Wi-Fi");
   uint32_t startAttempt = millis();
