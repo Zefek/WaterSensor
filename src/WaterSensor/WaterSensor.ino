@@ -236,8 +236,9 @@ void connectToWifi()
     Serial.print(".");
     if (millis() - startAttempt > WIFI_CONNECT_TIMEOUT_MS)
     {
-      Serial.println("\nWi-Fi se nepodařilo připojit v limitu, restartuji...");
-      ESP.restart();
+      Serial.println("\nWi-Fi se nepodařilo připojit v limitu, zkusim to znovu.");
+      WiFi.disconnect();
+      return;
     }
   }
   WiFi.setSleep(false);
