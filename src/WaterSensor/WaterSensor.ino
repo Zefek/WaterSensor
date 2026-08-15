@@ -8,7 +8,7 @@
 #include <esp_sntp.h>
 #include "config.h"
 
-const size_t CHUNK_SIZE = 512;
+const size_t CHUNK_SIZE = 1400;
 const uint16_t CLIENT_TIMEOUT_S = 30;
 const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 const int BASE_DELAY_MS = 1000;
