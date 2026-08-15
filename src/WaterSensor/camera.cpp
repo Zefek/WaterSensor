@@ -111,9 +111,9 @@ bool initCamera()
   config.frame_size = FRAMESIZE_SVGA;
   config.pixel_format = PIXFORMAT_JPEG;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.fb_count = 1;
+  config.fb_count = 2;
   config.jpeg_quality = 4;
-  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  config.grab_mode = CAMERA_GRAB_LATEST;
 
   if (psramFound())
   {
