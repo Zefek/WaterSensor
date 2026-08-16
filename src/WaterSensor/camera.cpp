@@ -8,6 +8,7 @@
 
 const uint8_t AE_CONVERGE_FRAMES = 10;
 const uint16_t AE_CONVERGE_DELAY_MS = 100;
+const int8_t AE_LEVEL = -2;
 
 void lockCameraSettings(sensor_t *s)
 {
@@ -15,6 +16,10 @@ void lockCameraSettings(sensor_t *s)
   s->set_awb_gain(s, 0);
   s->set_brightness(s, 0);
   s->set_contrast(s, 0);
+  if (s->set_ae_level)
+  {
+    s->set_ae_level(s, AE_LEVEL);
+  }
 }
 
 void printSensorValues(sensor_t *s) 
