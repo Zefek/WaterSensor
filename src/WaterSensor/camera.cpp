@@ -8,7 +8,7 @@
 
 const uint8_t AE_CONVERGE_FRAMES = 10;
 const uint16_t AE_CONVERGE_DELAY_MS = 100;
-const int8_t AE_LEVEL = -1;
+const int8_t AE_LEVEL = 0;
 
 void lockCameraSettings(sensor_t *s)
 {
