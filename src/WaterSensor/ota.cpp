@@ -4,11 +4,14 @@
 #include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
 #include <esp_task_wdt.h>
+#include <esp_sntp.h>
 #include "config.h"
 
 #ifndef OTA_NTP_SERVER
 #define OTA_NTP_SERVER "pool.ntp.org"
 #endif
+
+char ntpFromDhcp[16] = "";
 
 #ifndef OTA_CHECK_INTERVAL_MS
 #define OTA_CHECK_INTERVAL_MS (60UL * 60UL * 1000UL)
@@ -18,9 +21,24 @@
 #define FW_VERSION 0
 #endif
 
+const uint32_t OTA_HANDSHAKE_TIMEOUT_S = 30;
+
 static bool syncTime()
 {
-  configTime(0, 0, OTA_NTP_SERVER);
+  const ip_addr_t* dhcpServer = esp_sntp_getserver(0);
+  if (dhcpServer != NULL && !ip_addr_isany_val(*dhcpServer))
+  {
+    snprintf(ntpFromDhcp, sizeof(ntpFromDhcp), "%s", ipaddr_ntoa(dhcpServer));
+  }
+  if (ntpFromDhcp[0] != '\0')
+  {
+    Serial.printf("OTA: NTP z DHCP: %s\n", ntpFromDhcp);
+    configTime(0, 0, ntpFromDhcp, OTA_NTP_SERVER);
+  }
+  else
+  {
+    configTime(0, 0, OTA_NTP_SERVER);
+  }
   Serial.print("OTA: synchronizuji cas (NTP) ...");
   time_t now = 0;
   uint32_t start = millis();
@@ -43,8 +61,10 @@ static bool syncTime()
 static void doOTA()
 {
   Serial.printf("OTA: kontrola z %s (aktualni verze %d)\n", OtaUrl, (int)FW_VERSION);
+  esp_task_wdt_reset();
   WiFiClientSecure client;
   client.setCACert(RootCA);
+  client.setHandshakeTimeout(OTA_HANDSHAKE_TIMEOUT_S);
 
   HTTPUpdate updater(30000);
   updater.setAuthorization(OtaUser, OtaPassword);

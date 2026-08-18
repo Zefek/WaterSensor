@@ -5,6 +5,7 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 #include <esp_task_wdt.h>
+#include <esp_sntp.h>
 #include "config.h"
 
 const size_t CHUNK_SIZE = 1400;
@@ -53,10 +54,12 @@ int readHttpStatus(WiFiClient& client)
 
 bool postBinary(const char* path, const uint8_t* data, size_t len)
 {
+  esp_task_wdt_reset();
   WiFiClientSecure client;
   client.setCACert(RootCA);
   client.setNoDelay(true);
   client.setConnectionTimeout(CLIENT_TIMEOUT_S * 1000);
+  client.setHandshakeTimeout(CLIENT_TIMEOUT_S);
   if (!client.connect(Server, Port))
   {
     client.stop();
@@ -122,6 +125,7 @@ void captureAndSend()
   uint32_t t0 = millis();
   WiFiClientSecure client;
   client.setCACert(RootCA);
+  client.setHandshakeTimeout(CLIENT_TIMEOUT_S);
   Serial.printf("Pred TLS (kamera aktivni): freeHeap=%u maxAlloc=%u\n",
                 (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 
@@ -221,6 +225,7 @@ void captureAndSend()
 void connectToWifi()
 {
   WiFi.mode(WIFI_STA);
+  esp_sntp_servermode_dhcp(true);
   WiFi.begin(WifiSSID, WifiPassword);
   Serial.print("Připojuji se na Wi-Fi");
   uint32_t startAttempt = millis();
@@ -231,8 +236,9 @@ void connectToWifi()
     Serial.print(".");
     if (millis() - startAttempt > WIFI_CONNECT_TIMEOUT_MS)
     {
-      Serial.println("\nWi-Fi se nepodařilo připojit v limitu, restartuji...");
-      ESP.restart();
+      Serial.println("\nWi-Fi se nepodařilo připojit v limitu, zkusim to znovu.");
+      WiFi.disconnect();
+      return;
     }
   }
   WiFi.setSleep(false);
