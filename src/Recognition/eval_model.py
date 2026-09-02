@@ -64,6 +64,23 @@ def bucket_of(pos, gt, pred, p_gt, p_pred, max_p):
     return "model_error"
 
 
+def resolve_folder(folder):
+    roots = [os.path.realpath(config.IMAGE_FOLDER),
+             os.path.realpath(config.IMAGE_TRAINING_FOLDER)]
+    resolved = os.path.realpath(folder)
+    inside = False
+    for root in roots:
+        try:
+            inside = inside or os.path.commonpath([root, resolved]) == root
+        except ValueError:
+            pass                # jiný disk
+    if not inside:
+        sys.exit(f"Složka musí ležet pod {' nebo '.join(roots)}: {folder}")
+    if not os.path.isdir(resolved):
+        sys.exit(f"Složka neexistuje: {resolved}")
+    return resolved
+
+
 def gather(folder):
     out = []
     for root, _dirs, files in os.walk(folder):
@@ -80,7 +97,7 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a.split("=")[0]: (a.split("=")[1] if "=" in a else True)
              for a in sys.argv[1:] if a.startswith("--")}
-    folder = args[0] if len(args) > 0 else config.IMAGE_FOLDER_SUCCESS
+    folder = resolve_folder(args[0] if len(args) > 0 else config.IMAGE_FOLDER_SUCCESS)
     model_path = args[1] if len(args) > 1 else config.MODEL_PATH
     sample = int(flags["--sample"]) if "--sample" in flags else None
     limit = int(flags["--limit"]) if "--limit" in flags else None

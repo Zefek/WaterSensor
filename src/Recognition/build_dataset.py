@@ -44,7 +44,7 @@ def split_by_hash(entries):
     for e in entries:
         hash_ = e[0]
         # md5 hashe filename hashe -> stabilni float v [0, 1)
-        h = hashlib.md5(hash_.encode("ascii")).hexdigest()
+        h = hashlib.md5(hash_.encode("ascii"), usedforsecurity=False).hexdigest()
         r = int(h[:8], 16) / 0x100000000
         if r < TRAIN_RATIO:
             train.append(e)

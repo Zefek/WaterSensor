@@ -259,6 +259,7 @@ def build_connection_parameters():
     if getattr(config_secret, "RABBITMQ_USE_TLS", False):
         ca_file = getattr(config_secret, "RABBITMQ_TLS_CA_FILE", None)
         context = ssl.create_default_context(cafile=ca_file)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         server_name = getattr(config_secret, "RABBITMQ_TLS_SERVER_NAME", None) or config_secret.RABBITMQ_HOST
         ssl_options = pika.SSLOptions(context, server_hostname=server_name)
     return pika.ConnectionParameters(
