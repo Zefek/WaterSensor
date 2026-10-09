@@ -15,44 +15,82 @@ const int BASE_DELAY_MS = 1000;
 const int MAX_RETRIES = 5;
 const uint8_t MAX_CAMERA_ERRORS = 3;
 const uint32_t WDT_TIMEOUT_S = 90;
+const int HTTP_MAX_HEADERS = 32;
+#define OTA_AVAILABLE_HEADER "X-OTA-Available"
+#ifndef FW_VERSION
+#define FW_VERSION 0
+#endif
 
 //Interval snímání (1 minut)
 const unsigned long interval = 1 * 60 * 1000;
 unsigned long lastCaptureTime = 0;
 uint8_t consecutiveCameraErrors = 0;
 
-int readHttpStatus(WiFiClient& client) 
+int readHttpStatus(WiFiClient& client, bool* otaAvailable = nullptr)
 {
   uint32_t start = millis();
   String statusLine = "";
-  while (millis() - start < (uint32_t)CLIENT_TIMEOUT_S * 1000) 
+  int code = -1;
+  while (millis() - start < (uint32_t)CLIENT_TIMEOUT_S * 1000)
   {
-    if (!client.connected() && client.available() == 0) 
+    if (!client.connected() && client.available() == 0)
     {
       return -1;
     }
-    if (client.available()) 
+    if (client.available())
     {
       statusLine = client.readStringUntil('\n');
       statusLine.trim();
-      if (statusLine.length() > 0) 
+      if (statusLine.length() > 0)
       {
         int firstSpace = statusLine.indexOf(' ');
         if (firstSpace > 0) {
           int secondSpace = statusLine.indexOf(' ', firstSpace + 1);
           String codeStr = (secondSpace > firstSpace) ? statusLine.substring(firstSpace + 1, secondSpace) : statusLine.substring(firstSpace + 1);
-          int code = codeStr.toInt();
-          return code;
+          code = codeStr.toInt();
+          break;
         }
       }
     }
     esp_task_wdt_reset();
     delay(5);
   }
-  return -1;
+
+  if (code < 0 || otaAvailable == nullptr)
+  {
+    return code;
+  }
+
+  int headerCount = 0;
+  while (headerCount < HTTP_MAX_HEADERS && millis() - start < (uint32_t)CLIENT_TIMEOUT_S * 1000)
+  {
+    if (!client.connected() && client.available() == 0)
+    {
+      break;
+    }
+    if (client.available())
+    {
+      String line = client.readStringUntil('\n');
+      line.trim();
+      if (line.length() == 0)
+      {
+        break;
+      }
+      headerCount++;
+      int colon = line.indexOf(':');
+      if (colon > 0 && line.substring(0, colon).equalsIgnoreCase(OTA_AVAILABLE_HEADER))
+      {
+        *otaAvailable = true;
+        break;
+      }
+    }
+    esp_task_wdt_reset();
+    delay(5);
+  }
+  return code;
 }
 
-bool postBinary(const char* path, const uint8_t* data, size_t len)
+bool postBinary(const char* path, const uint8_t* data, size_t len, bool* otaAvailable = nullptr)
 {
   esp_task_wdt_reset();
   WiFiClientSecure client;
@@ -71,6 +109,11 @@ bool postBinary(const char* path, const uint8_t* data, size_t len)
   client.println("Content-Type: application/octet-stream");
   client.printf("Content-Length: %u\r\n", (unsigned)len);
   client.printf("Authorization: %s\r\n", auth);
+  if (otaAvailable != nullptr)
+  {
+    client.printf("X-Device-Name: %s\r\n", OtaDeviceName);
+    client.printf("x-ESP32-version: %d\r\n", (int)FW_VERSION);
+  }
   client.println("Connection: close\r\n");
 
   size_t sent = 0;
@@ -80,7 +123,7 @@ bool postBinary(const char* path, const uint8_t* data, size_t len)
     if (w == 0) break;
     sent += w;
   }
-  int code = readHttpStatus(client);
+  int code = readHttpStatus(client, otaAvailable);
   client.stop();
   return code >= 200 && code < 300;
 }
@@ -312,7 +355,12 @@ void loop()
       lastDiag = millis();
       uint8_t diagBuf[40];
       size_t n = diagBuildDeviceBlob(diagBuf, sizeof(diagBuf));
-      if (n) postBinary(endpointDiag, diagBuf, n);
+      bool otaAvailable = false;
+      if (n && postBinary(endpointDiag, diagBuf, n, &otaAvailable) && otaAvailable)
+      {
+        Serial.println("OTA: server hlasi novou verzi");
+        otaRequest();
+      }
     }
 
     if (millis() - lastCaptureTime >= interval)

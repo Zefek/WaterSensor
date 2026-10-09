@@ -9,6 +9,7 @@
 #define OtaUrl      "OtaUrl"
 #define OtaUser     "OtaUser"
 #define OtaPassword "OtaPassword"
+#define OtaDeviceName "OtaDeviceName"
 #define RootCA R"EOF(
 -----BEGIN CERTIFICATE-----
 -----END CERTIFICATE-----

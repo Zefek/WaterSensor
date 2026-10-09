@@ -14,7 +14,11 @@
 char ntpFromDhcp[16] = "";
 
 #ifndef OTA_CHECK_INTERVAL_MS
-#define OTA_CHECK_INTERVAL_MS (60UL * 60UL * 1000UL)
+#define OTA_CHECK_INTERVAL_MS (24UL * 60UL * 60UL * 1000UL)
+#endif
+
+#ifndef OTA_MIN_INTERVAL_MS
+#define OTA_MIN_INTERVAL_MS (5UL * 60UL * 1000UL)
 #endif
 
 #ifndef FW_VERSION
@@ -22,6 +26,15 @@ char ntpFromDhcp[16] = "";
 #endif
 
 const uint32_t OTA_HANDSHAKE_TIMEOUT_S = 30;
+
+uint32_t otaLastCheck = 0;
+bool otaFirstRun = true;
+bool otaRequested = false;
+
+void otaRequest()
+{
+  otaRequested = true;
+}
 
 static bool syncTime()
 {
@@ -110,15 +123,21 @@ void otaBegin()
 
 void otaLoop()
 {
-  static uint32_t lastCheck = 0;
-  static bool firstRun = true;
-  if (firstRun || (millis() - lastCheck >= OTA_CHECK_INTERVAL_MS))
+  if (WiFi.status() != WL_CONNECTED)
   {
-    firstRun = false;
-    lastCheck = millis();
-    if (WiFi.status() == WL_CONNECTED)
-    {
-      doOTA();
-    }
+    return;
   }
+
+  bool cooledDown = millis() - otaLastCheck >= OTA_MIN_INTERVAL_MS;
+  if (!otaFirstRun
+      && !(otaRequested && cooledDown)
+      && millis() - otaLastCheck < OTA_CHECK_INTERVAL_MS)
+  {
+    return;
+  }
+
+  otaFirstRun = false;
+  otaRequested = false;
+  otaLastCheck = millis();
+  doOTA();
 }
