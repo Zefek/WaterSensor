@@ -32,7 +32,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
       
-      - uses: zefek/GithubActions/Actions/deployConfig@cfa607433f922bc86920077c4e4ea4c335813a37
+      - uses: zefek/GithubActions/Actions/deployConfig@2e184d778e792c3032f18b9b11d414ae3528ac7c
         with:
           repo:   ${{ env.REPO }} 
           dest:   ${{ runner.temp }}\secrets
